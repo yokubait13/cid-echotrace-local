@@ -1,6 +1,6 @@
 # CID EchoTrace Local
 
-CID EchoTrace Local is an offline-first audio and video transcription workspace for evidence review. It gives a graphite, field-olive, brass, and oxide-red desktop interface for batch-dropping recordings, transcribing with its already-included higher-accuracy Whisper model and NVIDIA GPU acceleration, reviewing timestamped output, and exporting TXT, SRT, or a branded PDF transcript.
+CID EchoTrace Local is an offline-first audio and video transcription workspace for evidence review. It gives a desktop interface for batch-dropping recordings, transcribing with its already-included higher-accuracy Whisper model and NVIDIA GPU acceleration, reviewing timestamped output, and exporting TXT, SRT, or a branded PDF transcript.
 
 CID EchoTrace Local is independently branded for CID-style case workflows. It does not reproduce U.S. Army, Department of Defense, or Army CID seals, insignia, or official branding.
 
@@ -20,7 +20,7 @@ The installed Windows application deliberately has no analytics, cloud API calls
 - A local library view for the active app session, grouped by project and shown as expandable project folders in the left rail. Each project can export one combined branded PDF portfolio of all completed transcripts, or be packaged into a local folder containing the original audio/video files, completed TXT/SRT/PDF exports, that PDF portfolio, and a manifest.
 - Branded PDF transcript exports generated locally, with the CID EchoTrace Local name and a vector EchoTrace mark embedded directly in the document, using the same field-olive, brass, and parchment palette as the application.
 - Synchronized local review playback: the active transcript segment is highlighted while audio plays, and each timestamp jumps directly to that point in the recording. Transcript search highlights every match, shows the current match count, and provides a Next control (or Enter) to move through each result.
-- An intentionally original visual system inspired by the *interaction pattern* of a simple Whisper GUI—rather than by WizWhisp branding, logos, images, or source code.
+
 
 ## Installed-app requirements
 
@@ -28,12 +28,6 @@ The installed Windows application deliberately has no analytics, cloud API calls
 2. No account, network connection, model download, Node.js, Python, `ffmpeg`, `whisper-cli`, CUDA Toolkit, or ICMV codec installation is required after installing CID EchoTrace Local. The installed edition offers an installer-time choice to enable its bundled CUDA runtime; an NVIDIA display driver is all that option requires.
 
 The package includes an official CUDA/cuBLAS build of `whisper.cpp`, a CPU fallback build, one fixed **Whisper Large v3 Turbo multilingual** GGML model, a local Silero voice-activity model, a static FFmpeg binary, and an x86 helper plus the supplied `icmv.acm` module. When an NVIDIA GPU and driver are available and CUDA acceleration was enabled in the installer, CID EchoTrace automatically uses the CUDA engine. If a target PC has no compatible NVIDIA GPU, GPU acceleration was declined during installation, or the GPU runtime cannot initialize, it retries the same file once using the bundled CPU engine. The installed app presents no model picker and requires no runtime configuration.
-
-### ICMV Audio Codec compatibility
-
-The supplied `ICMVCODEC.MSI` identifies itself as **ICMV Audio Codec 1.0.0** from PCS Inc. Its sole codec payload is an unsigned x86 Windows Audio Compression Manager (`icmv.acm`) module, installed traditionally as `msacm.ICMV` in the global `Drivers32` registry.
-
-CID EchoTrace uses the bundled FFmpeg decoder first for every input. If FFmpeg cannot decode a legacy RIFF/WAV input, CID EchoTrace then uses an x86 `icmv-decode-x86.exe` bridge that loads the supplied ACM module into that one helper process, writes a temporary PCM WAV file, and returns to the local FFmpeg/Whisper pipeline. This preserves FFmpeg's native support for streams such as G.729 while retaining the ICMV bridge as a narrow compatibility fallback. No installer runs at application launch, and CID EchoTrace does not write to `System32`, the global codec registry, or a user's codec configuration.
 
 ### Broad audio decoder coverage
 
