@@ -1,6 +1,6 @@
 # Third-party notices
 
-CID EchoTrace Local 0.10.0 bundles the following components so transcription works immediately after installation.
+CID EchoTrace Local 1.0.0 bundles the following components so transcription works immediately after installation.
 
 ## whisper.cpp
 
