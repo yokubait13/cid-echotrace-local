@@ -1,0 +1,7 @@
+data/
+models/
+config.json
+node_modules/
+release/
+vendor/
+.DS_Store

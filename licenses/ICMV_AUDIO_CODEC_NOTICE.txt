@@ -1,0 +1,14 @@
+ICMV Audio Codec distribution notice
+===================================
+
+EchoScribe Local packages icmv.acm only when the release builder supplies the
+specific ICMV Audio Codec 1.0.0 MSI approved by the project. The provided MSI
+identifies PCS Inc. as its manufacturer, has no embedded licence text, and
+contains an unsigned x86 ACM module.
+
+The codec is loaded privately by icmv-decode-x86.exe. EchoScribe does not run
+the MSI, copy the module into Windows system folders, or create the MSI's
+Drivers32 registry entries.
+
+Before redistributing an EchoScribe package containing this file, confirm that
+you hold the necessary rights from PCS Inc. or the applicable rights holder.

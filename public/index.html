@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f7ff" />
+    <title>CID EchoTrace Local</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Application navigation">
+        <a class="brand" href="#workspace" aria-label="CID EchoTrace Local home">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>CID <span class="brand-accent">EchoTrace</span></span>
+        </a>
+
+        <nav class="nav-list">
+          <a class="nav-link active" href="#workspace" data-view="workspace">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18.5zM8 8h8M8 12h8M8 16h5" /></svg>
+            <span>Transcribe</span>
+          </a>
+          <a class="nav-link" href="#library" data-view="library">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h10A2.5 2.5 0 0 1 17.5 7v12.5H7A2.5 2.5 0 0 1 4.5 17V5a.5.5 0 0 1 .5-.5ZM8.5 8h5M8.5 11.5h5M8.5 15h3" /><path d="M17.5 7H19a.5.5 0 0 1 .5.5v11A2.5 2.5 0 0 1 17 21H7" /></svg>
+            <span>Local library</span>
+            <span class="nav-count" id="navJobCount">0</span>
+          </a>
+          <div class="project-nav" id="projectNav" aria-label="Project folders" hidden></div>
+        </nav>
+
+        <section class="rail-queue" id="railQueue" aria-labelledby="railQueueHeading">
+          <header class="rail-section-heading">
+            <span id="railQueueHeading">LOCAL QUEUE</span>
+            <b id="railQueueCount">0</b>
+          </header>
+          <p class="rail-queue-empty" id="railQueueEmpty">Files you add will appear here.</p>
+          <div class="rail-job-list" id="railJobList" hidden></div>
+        </section>
+
+        <div class="sidebar-spacer"></div>
+        <section class="privacy-card" aria-label="Privacy promise">
+          <span class="lock-orb" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><rect x="6.5" y="10" width="11" height="9" rx="2" /><path d="M9 10V7.5a3 3 0 0 1 6 0V10" /></svg>
+          </span>
+          <div>
+            <strong>Private by design</strong>
+            <p>Your files stay on this computer.</p>
+          </div>
+        </section>
+        <button class="settings-link" type="button" id="settingsButton">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="m19.1 13.1 1.1.8-2 3.5-1.3-.5a7.5 7.5 0 0 1-1.7 1l-.2 1.4h-4l-.2-1.4a7.5 7.5 0 0 1-1.7-1l-1.3.5-2-3.5 1.1-.8a7.6 7.6 0 0 1 0-2.2l-1.1-.8 2-3.5 1.3.5a7.5 7.5 0 0 1 1.7-1L11 4.2h4l.2 1.4a7.5 7.5 0 0 1 1.7 1l1.3-.5 2 3.5-1.1.8a7.6 7.6 0 0 1 0 2.2Z" /></svg>
+          <span>Included runtime</span>
+        </button>
+      </aside>
+
+      <main class="main-area" id="workspace">
+        <header class="topbar">
+          <div>
+            <p class="breadcrumb">Workspace <span>/</span> Today</p>
+            <h1 id="pageTitle">New transcription</h1>
+          </div>
+          <div class="topbar-actions">
+            <button class="circle-button help-button" type="button" aria-label="How to use CID EchoTrace Local" id="helpButton">?</button>
+            <span class="local-status"><i></i> Local only</span>
+          </div>
+        </header>
+
+        <section class="content-scroll" aria-live="polite">
+          <div class="hero-copy" id="emptyHero" data-workspace-panel>
+            <span class="eyebrow"><i></i> Offline transcription workspace</span>
+            <h2>Every spoken idea,<br /><em>ready to work with.</em></h2>
+            <p>Drop a recording and get a searchable transcript with the included local model—nothing is sent to the cloud.</p>
+          </div>
+
+          <section class="drop-card" id="dropCard" aria-label="Choose media to transcribe" data-workspace-panel>
+            <input id="fileInput" type="file" accept="audio/*,video/*,.3ga,.ac3,.adx,.amr,.ape,.awb,.caf,.dff,.dsf,.dts,.eac3,.g722,.g726,.g726le,.g729,.gsm,.mka,.m4b,.mlp,.mp1,.mp2,.mpc,.opus,.ra,.rm,.spx,.tak,.thd,.truehd,.tta,.voc,.w64,.wv,.m2ts,.mxf,.mts" multiple hidden />
+            <div class="drop-icon" aria-hidden="true">
+              <svg viewBox="0 0 32 32"><path d="M16 21V6m0 0-5 5m5-5 5 5" /><path d="M7 18v6.2A2.8 2.8 0 0 0 9.8 27h12.4a2.8 2.8 0 0 0 2.8-2.8V18" /></svg>
+            </div>
+            <h3>Drop audio or video files here</h3>
+            <p>or select one or more files from your computer</p>
+            <button class="primary-button" type="button" id="browseButton">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0-11-4 4m4-4 4 4M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" /></svg>
+              Choose a file
+            </button>
+            <div class="format-row"><span>Batch upload</span><span>1 file processes at a time</span><span>MP3</span><span>AMR / GSM</span><span>Opus / OGG</span><span>WAV / ICMV</span><span>and more</span></div>
+          </section>
+
+          <section class="transcript-panel" id="transcriptPanel" hidden aria-labelledby="transcriptTitle" data-workspace-panel>
+            <div class="transcript-heading">
+              <div>
+                <p class="section-kicker">Finished locally</p>
+                <h2 id="transcriptTitle">Transcript</h2>
+              </div>
+              <div class="transcript-tools">
+                <div class="search-tools" role="search">
+                  <label class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 4 4"/></svg><input id="searchTranscript" type="search" placeholder="Find in transcript" aria-label="Find in transcript" /></label>
+                  <span class="search-count" id="searchCount" aria-live="polite"></span>
+                  <button class="icon-text-button search-next" type="button" id="searchNext" disabled>Next</button>
+                </div>
+                <button class="icon-text-button" type="button" id="copyButton"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/></svg> Copy</button>
+              </div>
+            </div>
+            <div class="transcript-summary" id="transcriptSummary"></div>
+            <section class="audio-review" id="audioReview" hidden aria-label="Synchronized transcript playback">
+              <div class="audio-review-heading">
+                <div>
+                  <p class="section-kicker">Synchronized review</p>
+                  <strong>Playback follows the highlighted transcript line.</strong>
+                </div>
+                <span class="audio-review-status" id="audioReviewStatus">Ready to play</span>
+              </div>
+              <audio id="audioPlayer" controls preload="metadata"></audio>
+              <p class="audio-review-hint">Click any timestamp below to jump to that point and start playback.</p>
+            </section>
+            <div class="transcript-body" id="transcriptBody"></div>
+          </section>
+
+          <section class="library-view" id="libraryView" hidden aria-labelledby="libraryHeading">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">Local library</p>
+                <h2 id="libraryHeading">Your recordings</h2>
+              </div>
+              <span class="queue-note">Available in this local session.</span>
+            </div>
+            <div class="empty-queue" id="emptyLibrary">
+              <span class="empty-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+              <div><strong>Your local library is empty.</strong><p>Finished recordings will appear here for playback, review, and export.</p></div>
+            </div>
+            <div class="library-list" id="libraryList" hidden></div>
+          </section>
+        </section>
+      </main>
+
+      <aside class="inspector processing-inspector" aria-label="Processing status">
+        <div class="inspector-top">
+          <span class="inspector-dot" aria-hidden="true"></span>
+          <p>PROCESSING STATUS</p>
+        </div>
+        <section class="processing-overview" aria-live="polite">
+          <p class="side-label">ACTIVE FILE</p>
+          <h2 id="activeJobName">No active transcription</h2>
+          <p class="active-job-stage" id="activeJobStage">Add a file to begin a private local transcription.</p>
+          <div class="side-progress-row">
+            <div class="side-progress-track" id="activeProgress" role="progressbar" aria-label="Active transcription progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="activeProgressFill"></i></div>
+            <strong id="activeProgressPercent">0%</strong>
+          </div>
+          <div class="processing-metrics">
+            <div><span>ENGINE</span><strong id="activeEngine">Waiting</strong></div>
+            <div><span>QUEUE</span><strong id="queueStatus">0 files</strong></div>
+          </div>
+        </section>
+        <section class="project-control">
+          <p class="side-label">PROJECT FOLDER</p>
+          <label for="projectName">Group this batch</label>
+          <input id="projectName" type="text" maxlength="80" placeholder="e.g. Client interview" autocomplete="off" />
+          <p>New uploads with this name stay together. In Local library, package their original audio and completed exports into one local folder.</p>
+        </section>
+        <section class="included-card">
+          <p>Every finished transcript includes</p>
+          <ul>
+            <li><span>✓</span> Editable text transcript</li>
+            <li><span>✓</span> Timestamped segments</li>
+            <li><span>✓</span> TXT, SRT and branded PDF exports</li>
+            <li><span>✓</span> NVIDIA GPU acceleration</li>
+            <li><span>✓</span> Private ICMV WAV decoding</li>
+          </ul>
+        </section>
+        <div class="inspector-spacer"></div>
+        <section class="engine-card" id="engineCard">
+          <div class="engine-title"><span class="engine-pulse"></span><strong>Checking local engine</strong></div>
+          <p id="engineMessage">Checking the included offline transcription runtime.</p>
+          <div class="engine-actions">
+            <button type="button" id="refreshEngine">Refresh status</button>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <div class="modal-backdrop" id="modalBackdrop" hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <button class="modal-close" type="button" id="modalClose" aria-label="Close">×</button>
+          <p class="section-kicker">CID EchoTrace Local</p>
+          <h2 id="modalTitle">A clear path from evidence to transcript.</h2>
+        <ol>
+          <li><b>Your accuracy-focused local model is already included.</b> Whisper Large v3 Turbo multilingual is installed with CID EchoTrace—there is nothing to configure or download.</li>
+          <li><b>Drop a recording.</b> The app streams it only to its local service at <code>127.0.0.1</code>.</li>
+          <li><b>Review and export.</b> Copy the result or download TXT, SRT, and a branded PDF transcript.</li>
+        </ol>
+        <p class="modal-note">Whisper, the ICMV decoder bridge, FFmpeg's broad local decoder suite, local speech detection, and the transcription model are packaged inside CID EchoTrace. The installed edition also includes its CUDA runtime; an NVIDIA display driver is all GPU acceleration requires.</p>
+      </section>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
