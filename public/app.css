@@ -80,6 +80,7 @@ button.timestamp { width: max-content; padding: 0; border: 0; border-radius: 3px
 .project-control { margin-top: 21px; padding: 15px; border: 1px solid #e7e5ee; border-radius: 11px; background: #fff; }
 .project-control label { display: block; margin-bottom: 8px; color: #45495c; font-size: 11px; font-weight: 750; }
 .project-control input, .project-control textarea { width: 100%; padding: 9px 10px; border: 1px solid #dedee9; border-radius: 8px; outline: none; color: #3f4357; background: #fcfcfe; font: inherit; font-size: 11px; }.project-control input:hover, .project-control textarea:hover { border-color: #cfc8ec; }.project-control input:focus, .project-control textarea:focus { border-color: #9f8deb; box-shadow: 0 0 0 3px #e8e3ff; }.project-control textarea { min-height: 70px; resize: vertical; font-size: 10px; line-height: 1.45; }
+.vocabulary-control { margin-top: 12px; }
 .project-control p:last-child { margin: 8px 0 0; color: #9296a7; font-size: 9px; line-height: 1.5; }
 .processing-inspector .included-card { margin-top: 20px; }
 .processing-inspector .engine-card { margin-top: auto; }
@@ -152,18 +153,30 @@ html, body { height: 100%; overflow: hidden; }
 .segment-text mark { box-shadow: inset 0 -1px 0 #c3a24a; }.segment-text mark.active { color: #263321; background: #e7cb73; box-shadow: 0 0 0 2px #c29d3d4a; }
 .project-export-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }.portfolio-project { flex: 0 0 auto; border-color: #c8d8bb; color: #3d5b34; background: #edf5e8; }.portfolio-project:hover { border-color: #9fba8e; color: #2d4b27; background: #e2efda; }
 
-/* A wider, scroll-free-looking evidence rail keeps names readable without
-   sacrificing access to long project lists or expanded transcripts. */
-.app-shell { grid-template-columns: 278px minmax(520px, 1fr) 295px; }
-.sidebar { overflow-x: hidden; scrollbar-gutter: auto; scrollbar-width: none; }
-.sidebar::-webkit-scrollbar { width: 0; height: 0; }
-.project-nav, .rail-job-list { max-height: none; overflow: visible; }
-.project-nav-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 6px; }.project-nav-title-row .project-nav-label { margin: 2px 0 4px; }
-.project-create-toggle { padding: 3px 5px; border: 1px solid #53614c; border-radius: 5px; color: #e0c677; background: #2e382b; font: inherit; font-size: 8px; font-weight: 850; }.project-create-toggle:hover { border-color: #bca159; color: #fff3bf; background: #394433; }
-.project-create-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; margin: 0 5px 5px; padding: 6px; border: 1px solid #52614b; border-radius: 7px; background: #2a3327; }.project-create-form input { min-width: 0; padding: 6px 7px; border: 1px solid #4c5945; border-radius: 5px; outline: none; color: #f5f2e6; background: #20281e; font: inherit; font-size: 9px; }.project-create-form input::placeholder { color: #9ba694; }.project-create-form input:focus { border-color: #c0a158; box-shadow: 0 0 0 2px #c0a15830; }.project-create-form button { padding: 0 7px; border: 0; border-radius: 5px; color: #172014; background: #d0ad57; font: inherit; font-size: 8px; font-weight: 850; }.project-create-form button:hover { background: #e0c16d; }
-.project-folder { transition: background .16s ease, box-shadow .16s ease; }.project-folder.drop-target { background: #d0ad5719; box-shadow: inset 0 0 0 1px #d0ad57; }.project-folder.drop-target .project-folder-toggle { color: #fff2bd; background: #ffffff0d; }
-.project-file-entry { min-width: 0; }.project-file-item { cursor: pointer; }.project-file-item.inline-open { color: #f1d990; background: #ffffff12; box-shadow: inset 2px 0 0 #c6a556; }.project-file-item.dragging-file, .library-card.dragging-file { opacity: .45; }
-.project-folder-empty { margin: 4px 6px; color: #9da895; font-size: 8px; line-height: 1.45; }.project-folder-empty-root { margin: 4px 7px 7px; }
-.inline-transcript { margin: 3px 1px 5px; overflow: hidden; border: 1px solid #485543; border-radius: 7px; background: #20281e; }.inline-transcript header { display: flex; align-items: center; justify-content: space-between; gap: 5px; padding: 6px 7px; border-bottom: 1px solid #485543; color: #f2eee0; }.inline-transcript header strong { font-size: 9px; }.inline-transcript header span { color: #b7c0ad; font-size: 8px; }.inline-transcript-body { display: grid; gap: 0; max-height: 240px; overflow-y: auto; overscroll-behavior: contain; }.inline-transcript-body article { display: grid; grid-template-columns: 47px minmax(0, 1fr); gap: 5px; padding: 5px 7px; border-bottom: 1px solid #ffffff0b; }.inline-transcript-body article:last-child { border-bottom: 0; }.inline-transcript-body time { color: #d3b564; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 7px; font-weight: 750; }.inline-transcript-body p { margin: 0; color: #d5dbd0; font-size: 8px; line-height: 1.42; }.inline-transcript-status { margin: 3px 4px 5px; padding: 6px; border-radius: 6px; color: #b5c0ad; background: #ffffff0a; font-size: 8px; line-height: 1.4; }
-.move-project-select { max-width: 118px; padding: 6px 20px 6px 7px; appearance: auto; border: 1px solid #cbdabd; border-radius: 7px; outline: none; color: #45603a; background: #f4f8ef; font: inherit; font-size: 9px; font-weight: 700; }.move-project-select:hover, .move-project-select:focus { border-color: #9fba8e; background: #eaf2e3; }
-@media (max-width: 1120px) { .app-shell { grid-template-columns: 258px minmax(450px, 1fr) 248px; } }
+/* Global search stays in the header so investigators can move between case
+   files without returning to the library. Results are transcript-scoped and
+   entirely local; * represents any run of characters and ? one character. */
+.global-search { position: relative; min-width: min(325px, 30vw); }
+.global-search-field { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 0 10px; border: 1px solid #d1dbc9; border-radius: 8px; color: #63745b; background: #fbfdf8; box-shadow: 0 2px 5px #32412d08; transition: border-color .16s ease, box-shadow .16s ease; }
+.global-search-field:focus-within { border-color: #91a97c; box-shadow: 0 0 0 3px #e4ecdc; }
+.global-search-field svg { flex: 0 0 auto; width: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.global-search-field input { width: 100%; min-width: 0; height: 32px; padding: 0; border: 0; outline: 0; color: #354431; background: transparent; font: inherit; font-size: 10px; font-weight: 650; }
+.global-search-field input::placeholder { color: #899487; font-weight: 600; }
+.global-search-results { position: absolute; top: calc(100% + 7px); right: 0; z-index: 12; width: min(430px, calc(100vw - 32px)); max-height: min(500px, calc(100vh - 140px)); overflow-y: auto; padding: 7px; border: 1px solid #d6dfce; border-radius: 10px; background: #fffffc; box-shadow: 0 15px 34px #2536212b; }
+.global-search-summary { margin: 3px 5px 6px; color: #6b7765; font-size: 9px; font-weight: 750; line-height: 1.45; }
+.global-search-result { display: grid; gap: 4px; width: 100%; padding: 9px 10px; border: 0; border-radius: 7px; color: #3d4938; background: transparent; font: inherit; text-align: left; transition: .14s ease; }
+.global-search-result:hover, .global-search-result:focus-visible { color: #2d4927; background: #edf4e8; outline: 0; }
+.global-search-result strong { overflow: hidden; font-size: 10px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.global-search-result span { color: #778174; font-size: 9px; line-height: 1.45; }.global-search-result span mark { padding: 0 1px; color: inherit; background: #e7ca71; }
+.global-search-result small { color: #7e8c76; font-size: 8px; font-weight: 750; }.global-search-empty { margin: 5px; padding: 10px; border-radius: 7px; color: #7a8576; background: #f3f6ef; font-size: 9px; line-height: 1.45; }
+
+/* Opening a completed file leaves the rail in place and gives that transcript
+   the full workspace; the next upload becomes visible again when no file is
+   selected. */
+body.transcript-selected [data-selection-hidden] { display: none !important; }
+body.transcript-selected .content-scroll { padding-top: 30px; }
+body.transcript-selected .transcript-panel { margin-top: 0; }
+.upload-project-field { position: relative; display: grid; grid-template-columns: auto minmax(160px, 245px); align-items: center; gap: 8px; width: min(100%, 360px); margin-top: 14px; color: #5a6854; font-size: 9px; font-weight: 800; letter-spacing: .35px; text-align: left; text-transform: uppercase; }
+.upload-project-field input { min-width: 0; width: 100%; padding: 8px 9px; border: 1px solid #d2ddca; border-radius: 7px; outline: 0; color: #3d4b38; background: #fffffc; font: inherit; font-size: 10px; font-weight: 650; letter-spacing: 0; text-transform: none; }.upload-project-field input:focus { border-color: #91a97c; box-shadow: 0 0 0 3px #e4ecdc; }.upload-project-field input::placeholder { color: #97a091; }
+
+@media (max-width: 1180px) { .global-search { min-width: 220px; }.global-search-field input { font-size: 9px; }.topbar-actions { gap: 8px; } }

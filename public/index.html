@@ -60,19 +60,23 @@
             <h1 id="pageTitle">New transcription</h1>
           </div>
           <div class="topbar-actions">
+            <div class="global-search" role="search">
+              <label class="global-search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 4 4"/></svg><input id="globalSearch" type="search" placeholder="Search all transcripts (use * or ?)" aria-label="Search all transcripts" autocomplete="off" /></label>
+              <div class="global-search-results" id="globalSearchResults" hidden aria-live="polite"></div>
+            </div>
             <button class="circle-button help-button" type="button" aria-label="How to use CID EchoTrace Local" id="helpButton">?</button>
             <span class="local-status"><i></i> Local only</span>
           </div>
         </header>
 
         <section class="content-scroll" aria-live="polite">
-          <div class="hero-copy" id="emptyHero" data-workspace-panel>
+          <div class="hero-copy" id="emptyHero" data-workspace-panel data-selection-hidden>
             <span class="eyebrow"><i></i> Offline transcription workspace</span>
             <h2>Every spoken idea,<br /><em>ready to work with.</em></h2>
             <p>Drop a recording and get a searchable transcript with the included local model—nothing is sent to the cloud.</p>
           </div>
 
-          <section class="drop-card" id="dropCard" aria-label="Choose media to transcribe" data-workspace-panel>
+          <section class="drop-card" id="dropCard" aria-label="Choose media to transcribe" data-workspace-panel data-selection-hidden>
             <input id="fileInput" type="file" accept="audio/*,video/*,.3ga,.ac3,.adx,.amr,.ape,.awb,.caf,.dff,.dsf,.dts,.eac3,.g722,.g726,.g726le,.g729,.gsm,.mka,.m4b,.mlp,.mp1,.mp2,.mpc,.opus,.ra,.rm,.spx,.tak,.thd,.truehd,.tta,.voc,.w64,.wv,.m2ts,.mxf,.mts" multiple hidden />
             <div class="drop-icon" aria-hidden="true">
               <svg viewBox="0 0 32 32"><path d="M16 21V6m0 0-5 5m5-5 5 5" /><path d="M7 18v6.2A2.8 2.8 0 0 0 9.8 27h12.4a2.8 2.8 0 0 0 2.8-2.8V18" /></svg>
@@ -83,6 +87,7 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0-11-4 4m4-4 4 4M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" /></svg>
               Choose a file
             </button>
+            <label class="upload-project-field" for="projectName">Project folder <input id="projectName" type="text" maxlength="80" placeholder="Untitled project" autocomplete="off" /></label>
             <div class="format-row"><span>Batch upload</span><span>1 file processes at a time</span><span>MP3</span><span>AMR / GSM</span><span>Opus / OGG</span><span>WAV / ICMV</span><span>and more</span></div>
           </section>
 
@@ -150,12 +155,6 @@
             <div><span>ENGINE</span><strong id="activeEngine">Waiting</strong></div>
             <div><span>QUEUE</span><strong id="queueStatus">0 files</strong></div>
           </div>
-        </section>
-        <section class="project-control">
-          <p class="side-label">PROJECT FOLDER</p>
-          <label for="projectName">Group this batch</label>
-          <input id="projectName" type="text" maxlength="80" placeholder="e.g. Client interview" autocomplete="off" />
-          <p>New uploads with this name stay together. In Local library, package their original audio and completed exports into one local folder.</p>
         </section>
         <section class="included-card">
           <p>Every finished transcript includes</p>

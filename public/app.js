@@ -6,12 +6,8 @@ const state = {
   pollTimer: null,
   toastTimer: null,
   view: "workspace",
-  projects: [],
   libraryProjectId: null,
   expandedProjectIds: new Set(),
-  inlineTranscriptJobId: null,
-  projectCreateVisible: false,
-  draggedJobId: null,
   searchMatchIndex: 0,
   audioJobId: null,
   activeSegmentId: null
@@ -39,6 +35,8 @@ const elements = {
   audioReview: document.querySelector("#audioReview"),
   audioReviewStatus: document.querySelector("#audioReviewStatus"),
   audioPlayer: document.querySelector("#audioPlayer"),
+  globalSearch: document.querySelector("#globalSearch"),
+  globalSearchResults: document.querySelector("#globalSearchResults"),
   search: document.querySelector("#searchTranscript"),
   searchCount: document.querySelector("#searchCount"),
   searchNext: document.querySelector("#searchNext"),
@@ -64,6 +62,65 @@ const elements = {
 
 function escapeHtml(value = "") {
   return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
+}
+
+function wildcardExpression(query, flags = "i") {
+  const normalized = String(query || "");
+  if (normalized === "*") return new RegExp("[\\s\\S]+", flags);
+  const source = [...normalized].map((character) => {
+    if (character === "*") return "[\\s\\S]*?";
+    if (character === "?") return "[\\s\\S]";
+    return character.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }).join("");
+  return source ? new RegExp(source, flags) : null;
+}
+
+function transcriptSearchText(job) {
+  if (job.segments?.length) return job.segments.map((segment) => segment.text || "").join("\n");
+  return String(job.transcript || "");
+}
+
+function countWildcardMatches(text, query) {
+  const matcher = wildcardExpression(query, "gi");
+  if (!matcher || !text) return 0;
+  let count = 0;
+  for (const match of text.matchAll(matcher)) {
+    // A bare * can also match at the end of text. It is not a useful result.
+    if (match[0]) count += 1;
+  }
+  return count;
+}
+
+function wildcardPreview(text, query) {
+  const matcher = wildcardExpression(query, "i");
+  const match = matcher?.exec(text);
+  if (!match || !match[0]) return escapeHtml(text.slice(0, 150));
+  const prefixStart = Math.max(0, match.index - 48);
+  const matchEnd = Math.min(text.length, match.index + match[0].length);
+  const suffixEnd = Math.min(text.length, matchEnd + 82);
+  const prefix = `${prefixStart > 0 ? "…" : ""}${escapeHtml(text.slice(prefixStart, match.index))}`;
+  const selected = escapeHtml(text.slice(match.index, matchEnd));
+  const suffix = `${escapeHtml(text.slice(matchEnd, suffixEnd))}${suffixEnd < text.length ? "…" : ""}`;
+  return `${prefix}<mark>${selected}</mark>${suffix}`;
+}
+
+function renderGlobalSearch() {
+  const query = elements.globalSearch.value.trim();
+  if (!query) {
+    elements.globalSearchResults.hidden = true;
+    elements.globalSearchResults.innerHTML = "";
+    return;
+  }
+  const results = state.jobs.filter((job) => job.state === "completed" && transcriptSearchText(job).trim()).map((job) => {
+    const text = transcriptSearchText(job);
+    return { job, text, matches: countWildcardMatches(text, query) };
+  }).filter((result) => result.matches > 0);
+  const visibleResults = results.slice(0, 50);
+  const summary = results.length
+    ? `${results.length} ${results.length === 1 ? "transcript matches" : "transcripts match"}${results.length > visibleResults.length ? ` · showing the first ${visibleResults.length}` : ""}`
+    : "No completed local transcript matches this search.";
+  elements.globalSearchResults.innerHTML = `<p class="global-search-summary">${summary}</p>${visibleResults.length ? visibleResults.map(({ job, text, matches }) => `<button class="global-search-result" type="button" data-global-search-job="${escapeHtml(job.id)}"><strong>${escapeHtml(job.name)}</strong><span>${wildcardPreview(text, query)}</span><small>${matches} ${matches === 1 ? "match" : "matches"} · ${escapeHtml(job.projectName || "Ungrouped files")}</small></button>`).join("") : `<p class="global-search-empty">Use <b>*</b> for any number of characters or <b>?</b> for one character. Search stays on this device.</p>`}`;
+  elements.globalSearchResults.hidden = false;
 }
 
 function titleFromFile(fileName) {
@@ -123,18 +180,15 @@ async function loadHealth() {
 
 async function loadJobs() {
   try {
-    const { jobs, projects = [] } = await request("/api/jobs");
+    const { jobs } = await request("/api/jobs");
     state.jobs = jobs;
-    state.projects = projects;
-    if (!state.selectedJobId && jobs.some((job) => job.state === "completed")) {
-      state.selectedJobId = jobs.find((job) => job.state === "completed").id;
-    }
     if (state.selectedJobId && !jobs.some((job) => job.id === state.selectedJobId)) state.selectedJobId = null;
     renderJobs();
     renderProjectNav();
     renderProcessingStatus();
     renderLibrary();
     renderTranscript();
+    renderGlobalSearch();
     setPolling(Boolean(jobs.find((job) => ["uploading", "queued", "processing"].includes(job.state))));
   } catch (error) {
     console.warn(error);
@@ -208,11 +262,8 @@ function renderJobs() {
   }).join("");
 }
 
-function projectGroupsFor(jobs = state.jobs, { includeEmpty = jobs === state.jobs } = {}) {
+function projectGroupsFor(jobs = state.jobs) {
   const groups = new Map();
-  if (includeEmpty) {
-    for (const project of state.projects) groups.set(project.id, { id: project.id, name: project.name, jobs: [] });
-  }
   for (const job of jobs) {
     const projectId = job.projectId || "legacy-project";
     if (!groups.has(projectId)) groups.set(projectId, { id: projectId, name: job.projectName || "Ungrouped files", jobs: [] });
@@ -225,60 +276,52 @@ function folderIcon() {
   return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5A2.5 2.5 0 0 1 6 4h4l2.2 2.3H18A2.5 2.5 0 0 1 20.5 9v8.5A2.5 2.5 0 0 1 18 20H6a2.5 2.5 0 0 1-2.5-2.5z"/></svg>`;
 }
 
-function inlineProjectTranscript(job) {
-  if (job.state !== "completed") return `<div class="inline-transcript-status">${escapeHtml(job.stage || "This file is not ready to review yet.")}</div>`;
-  const lines = job.segments?.length ? job.segments : [{ start: "Transcript", text: job.transcript }];
-  return `<section class="inline-transcript" aria-label="Transcript for ${escapeHtml(job.name)}"><header><strong>Transcript</strong><span>${wordCount(job.transcript)} words</span></header><div class="inline-transcript-body">${lines.map((segment) => `<article><time>${escapeHtml(segment.start || "Transcript")}</time><p>${escapeHtml(segment.text)}</p></article>`).join("")}</div></section>`;
-}
-
 function renderProjectNav() {
   const projects = projectGroupsFor();
-  elements.projectNav.hidden = false;
-  elements.projectNav.innerHTML = `<div class="project-nav-title-row"><p class="project-nav-label">PROJECT FOLDERS</p><button class="project-create-toggle" type="button" data-project-create-toggle aria-expanded="${state.projectCreateVisible}">+ New</button></div>${state.projectCreateVisible ? `<form class="project-create-form" data-project-create-form><input name="projectName" maxlength="80" autocomplete="off" placeholder="New project folder" aria-label="New project folder name" required /><button type="submit">Create</button></form>` : ""}${projects.length ? projects.map((project) => {
+  elements.projectNav.hidden = !projects.length;
+  if (!projects.length) {
+    elements.projectNav.innerHTML = "";
+    return;
+  }
+  elements.projectNav.innerHTML = `<p class="project-nav-label">PROJECT FOLDERS</p>${projects.map((project) => {
     const expanded = state.expandedProjectIds.has(project.id);
-    const files = project.jobs.length ? project.jobs.map((job) => {
-      const inlineOpen = state.inlineTranscriptJobId === job.id;
-      return `<div class="project-file-entry"><button class="project-file-item ${inlineOpen ? "inline-open" : ""}" type="button" draggable="true" data-project-nav-job-id="${job.id}" data-drag-job-id="${job.id}" aria-expanded="${inlineOpen}" title="Show ${escapeHtml(job.name)} below this file"><span>${escapeHtml(job.name)}</span><em>${escapeHtml(stateLabel(job))}</em></button>${inlineOpen ? inlineProjectTranscript(job) : ""}</div>`;
-    }).join("") : `<p class="project-folder-empty">No files yet. Drag a recording here after adding it.</p>`;
-    return `<section class="project-folder ${state.libraryProjectId === project.id ? "active" : ""}" data-drop-project-id="${escapeHtml(project.id)}">
+    return `<section class="project-folder ${state.libraryProjectId === project.id ? "active" : ""}">
       <div class="project-folder-header">
-        <button class="project-folder-toggle" type="button" data-project-toggle="${escapeHtml(project.id)}" aria-expanded="${expanded}" title="Show files in ${escapeHtml(project.name)} or drop a file here">${folderIcon()}<span>${escapeHtml(project.name)}</span><em>${project.jobs.length}</em><i aria-hidden="true"></i></button>
+        <button class="project-folder-toggle" type="button" data-project-toggle="${escapeHtml(project.id)}" aria-expanded="${expanded}" title="Show files in ${escapeHtml(project.name)}">${folderIcon()}<span>${escapeHtml(project.name)}</span><em>${project.jobs.length}</em><i aria-hidden="true"></i></button>
         <button class="project-folder-open" type="button" data-project-nav-id="${escapeHtml(project.id)}" title="Open ${escapeHtml(project.name)} in the library">View</button>
       </div>
-      <div class="project-file-list" ${expanded ? "" : "hidden"}>${files}</div>
+      <div class="project-file-list" ${expanded ? "" : "hidden"}>${project.jobs.map((job) => `<button class="project-file-item ${job.id === state.selectedJobId ? "selected" : ""}" type="button" data-project-nav-job-id="${job.id}" title="${escapeHtml(job.name)}"><span>${escapeHtml(job.name)}</span><em>${escapeHtml(stateLabel(job))}</em></button>`).join("")}</div>
     </section>`;
-  }).join("") : `<p class="project-folder-empty project-folder-empty-root">Create a project folder to organize recordings.</p>`}`;
+  }).join("")}`;
 }
 
 function renderLibrary() {
   const allProjects = projectGroupsFor();
   if (state.libraryProjectId && !allProjects.some((project) => project.id === state.libraryProjectId)) state.libraryProjectId = null;
-  const projects = state.libraryProjectId ? allProjects.filter((project) => project.id === state.libraryProjectId) : allProjects;
-  elements.emptyLibrary.hidden = Boolean(projects.length);
-  elements.libraryList.hidden = !projects.length;
-  if (!projects.length) {
+  const jobs = state.libraryProjectId ? state.jobs.filter((job) => (job.projectId || "legacy-project") === state.libraryProjectId) : state.jobs;
+  elements.emptyLibrary.hidden = Boolean(jobs.length);
+  elements.libraryList.hidden = !jobs.length;
+  if (!jobs.length) {
     elements.libraryList.innerHTML = "";
     return;
   }
-  elements.libraryList.innerHTML = projects.map((project) => {
+  elements.libraryList.innerHTML = projectGroupsFor(jobs).map((project) => {
     const completed = project.jobs.filter((job) => job.state === "completed").length;
     const cards = project.jobs.map((job) => {
       const complete = job.state === "completed";
       const failed = job.state === "failed";
-      const open = complete ? `<button class="library-action" type="button" data-library-action="open" data-id="${job.id}">Show below file</button>` : "";
+      const open = complete ? `<button class="library-action" type="button" data-library-action="open" data-id="${job.id}">Open transcript</button>` : "";
       const play = complete && job.mediaAvailable ? `<button class="library-action primary" type="button" data-library-action="play" data-id="${job.id}">Play audio</button>` : "";
       const clear = !["processing", "uploading"].includes(job.state) ? `<button class="library-action danger" type="button" data-library-action="clear" data-id="${job.id}">Clear</button>` : "";
-      const destinations = allProjects.filter((candidate) => candidate.id !== job.projectId);
-      const move = destinations.length ? `<select class="move-project-select" data-move-job-id="${job.id}" aria-label="Move ${escapeHtml(job.name)} to another project"><option value="">Move to...</option>${destinations.map((candidate) => `<option value="${escapeHtml(candidate.id)}">${escapeHtml(candidate.name)}</option>`).join("")}</select>` : "";
       const reviewStatus = complete ? (job.mediaAvailable ? "Transcript and synchronized review audio are ready on this device." : "Transcript is ready; review audio is unavailable for this older item.") : (failed ? escapeHtml(job.error || "The engine needs attention.") : `Working: ${escapeHtml(job.stage || "Preparing")}`);
-      return `<article class="library-card ${job.id === state.selectedJobId ? "selected" : ""}" draggable="true" data-drag-job-id="${job.id}" title="Drag this file to a project folder in the left rail">
+      return `<article class="library-card ${job.id === state.selectedJobId ? "selected" : ""}">
         ${fileIcon()}
         <div class="library-info">
           <div class="job-title-row"><p class="job-title" title="${escapeHtml(job.name)}">${escapeHtml(job.name)}</p><span class="job-state ${failed ? "failed" : ""}">${escapeHtml(stateLabel(job))}</span></div>
           <p class="job-meta"><span>${jobMeta(job)}</span></p>
           <p class="library-description">${reviewStatus}</p>
         </div>
-        <div class="library-actions">${move}${open}${play}${clear}</div>
+        <div class="library-actions">${open}${play}${clear}</div>
       </article>`;
     }).join("");
     return `<section class="library-project">
@@ -286,8 +329,8 @@ function renderLibrary() {
         <div><p class="section-kicker">Project folder</p><h3>${escapeHtml(project.name)}</h3><p>${project.jobs.length} ${project.jobs.length === 1 ? "source file" : "source files"} · ${completed} ${completed === 1 ? "completed transcript" : "completed transcripts"}</p></div>
         <div class="project-export-actions"><button class="library-action portfolio-project" type="button" data-library-action="portfolio" data-project-id="${escapeHtml(project.id)}">Export PDF portfolio</button><button class="library-action package-project" type="button" data-library-action="package" data-project-id="${escapeHtml(project.id)}">Package folder</button></div>
       </header>
-      <p class="library-project-hint">PDF portfolio combines every completed transcript. Drag a recording onto another left-rail project folder, or use Move to. Package folder also copies original media, individual exports, the portfolio, and a manifest.</p>
-      <div class="project-job-list">${cards || `<p class="library-project-empty">This project folder is ready for recordings.</p>`}</div>
+      <p class="library-project-hint">PDF portfolio compiles every completed PDF transcription in this project folder. Package folder also copies the original media, individual exports, the portfolio, and a manifest.</p>
+      <div class="project-job-list">${cards}</div>
     </section>`;
   }).join("");
 }
@@ -305,10 +348,18 @@ function wordCount(text) {
 }
 
 function highlight(text, query) {
-  const escaped = escapeHtml(text);
-  if (!query) return escaped;
-  const pattern = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return escaped.replace(new RegExp(`(${pattern})`, "gi"), "<mark>$1</mark>");
+  const source = String(text || "");
+  const matcher = wildcardExpression(query, "gi");
+  if (!matcher) return escapeHtml(source);
+  let output = "";
+  let cursor = 0;
+  for (const match of source.matchAll(matcher)) {
+    // Do not add a misleading highlight for an empty wildcard match.
+    if (!match[0]) continue;
+    output += `${escapeHtml(source.slice(cursor, match.index))}<mark>${escapeHtml(match[0])}</mark>`;
+    cursor = match.index + match[0].length;
+  }
+  return output ? `${output}${escapeHtml(source.slice(cursor))}` : escapeHtml(source);
 }
 
 function updateSearchMatches({ scroll = false } = {}) {
@@ -434,6 +485,7 @@ async function playFrom(milliseconds) {
 
 function renderTranscript() {
   const job = selectedCompletedJob();
+  document.body.classList.toggle("transcript-selected", state.view === "workspace" && Boolean(job));
   elements.transcriptPanel.hidden = state.view !== "workspace" || !job;
   if (!job) {
     resetPlaybackPlayer();
@@ -467,6 +519,7 @@ function renderTranscript() {
 function setView(view, updateHash = true) {
   const nextView = view === "library" ? "library" : "workspace";
   state.view = nextView;
+  if (nextView !== "workspace") document.body.classList.remove("transcript-selected");
   elements.workspacePanels.forEach((panel) => { panel.hidden = nextView !== "workspace"; });
   elements.libraryView.hidden = nextView !== "library";
   elements.navLinks.forEach((link) => link.classList.toggle("active", link.dataset.view === nextView));
@@ -489,74 +542,6 @@ function openTranscript(id, { play = false } = {}) {
   renderTranscript();
   document.querySelector("#transcriptPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
   if (play) void playFrom(0);
-}
-
-function toggleInlineTranscript(id) {
-  const job = state.jobs.find((candidate) => candidate.id === id);
-  if (!job) return;
-  state.inlineTranscriptJobId = state.inlineTranscriptJobId === id ? null : id;
-  state.expandedProjectIds.add(job.projectId);
-  renderProjectNav();
-  renderLibrary();
-}
-
-async function createProject(name) {
-  try {
-    const result = await request("/api/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name })
-    });
-    state.projectCreateVisible = false;
-    state.libraryProjectId = result.project.id;
-    state.expandedProjectIds.add(result.project.id);
-    await loadJobs();
-    showToast(`${result.project.name} is ready for recordings.`);
-  } catch (error) {
-    showToast(error.message || "The project folder could not be created.", "error");
-  }
-}
-
-async function moveJobToProject(jobId, projectId) {
-  const job = state.jobs.find((candidate) => candidate.id === jobId);
-  const destination = state.projects.find((project) => project.id === projectId);
-  if (!job || !destination || job.projectId === destination.id) return;
-  try {
-    const result = await request(`/api/jobs/${encodeURIComponent(jobId)}/project`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectId: destination.id })
-    });
-    state.jobs = state.jobs.map((candidate) => candidate.id === jobId ? result.job : candidate);
-    state.projects = result.projects || state.projects;
-    state.expandedProjectIds.add(destination.id);
-    renderJobs();
-    renderProjectNav();
-    renderLibrary();
-    renderTranscript();
-    showToast(`${job.name} moved to ${destination.name}.`);
-  } catch (error) {
-    showToast(error.message || "The file could not be moved.", "error");
-  }
-}
-
-function clearProjectDropTargets() {
-  document.querySelectorAll(".project-folder.drop-target").forEach((folder) => folder.classList.remove("drop-target"));
-}
-
-function beginProjectDrag(event) {
-  const source = event.target.closest("[data-drag-job-id]");
-  if (!source) return;
-  state.draggedJobId = source.dataset.dragJobId;
-  event.dataTransfer?.setData("text/plain", state.draggedJobId);
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-  source.classList.add("dragging-file");
-}
-
-function endProjectDrag(event) {
-  event.target.closest("[data-drag-job-id]")?.classList.remove("dragging-file");
-  state.draggedJobId = null;
-  clearProjectDropTargets();
 }
 
 function setPolling(active) {
@@ -658,7 +643,7 @@ async function exportProjectPortfolio(projectId) {
     document.body.append(download);
     download.click();
     download.remove();
-    showToast(`${portfolio.projectName} portfolio downloaded with ${portfolio.transcriptions} ${portfolio.transcriptions === 1 ? "transcript" : "transcripts"}.`);
+    showToast(`${portfolio.projectName} PDF portfolio downloaded with all ${portfolio.transcriptions} completed ${portfolio.transcriptions === 1 ? "transcription" : "transcriptions"} in this project folder.`);
   } catch (error) {
     showToast(error.message || "The PDF portfolio could not be created.", "error");
   }
@@ -677,7 +662,7 @@ elements.refreshEngine.addEventListener("click", loadHealth);
 elements.railJobList.addEventListener("click", (event) => {
   const target = event.target.closest("button[data-rail-job-id]");
   if (!target) return;
-  toggleInlineTranscript(target.dataset.railJobId);
+  openTranscript(target.dataset.railJobId);
 });
 elements.libraryList.addEventListener("click", (event) => {
   const target = event.target.closest("button[data-library-action]");
@@ -685,20 +670,34 @@ elements.libraryList.addEventListener("click", (event) => {
   if (target.dataset.libraryAction === "portfolio") void exportProjectPortfolio(target.dataset.projectId);
   if (target.dataset.libraryAction === "package") void packageProject(target.dataset.projectId);
   if (target.dataset.libraryAction === "clear") void clearJob(target.dataset.id);
-  if (target.dataset.libraryAction === "open") toggleInlineTranscript(target.dataset.id);
+  if (target.dataset.libraryAction === "open") openTranscript(target.dataset.id);
   if (target.dataset.libraryAction === "play") openTranscript(target.dataset.id, { play: true });
 });
-elements.libraryList.addEventListener("change", (event) => {
-  const target = event.target.closest("select[data-move-job-id]");
-  if (!target?.value) return;
-  void moveJobToProject(target.dataset.moveJobId, target.value);
-});
-elements.libraryList.addEventListener("dragstart", beginProjectDrag);
-elements.libraryList.addEventListener("dragend", endProjectDrag);
 elements.transcriptBody.addEventListener("click", (event) => {
   const timestamp = event.target.closest("button[data-seek-ms]");
   if (!timestamp) return;
   void playFrom(Number(timestamp.dataset.seekMs));
+});
+elements.globalSearch.addEventListener("input", renderGlobalSearch);
+elements.globalSearch.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    const firstResult = elements.globalSearchResults.querySelector("button[data-global-search-job]");
+    if (!firstResult) return;
+    event.preventDefault();
+    firstResult.click();
+  }
+  if (event.key === "Escape") {
+    elements.globalSearchResults.hidden = true;
+    elements.globalSearch.blur();
+  }
+});
+elements.globalSearchResults.addEventListener("click", (event) => {
+  const result = event.target.closest("button[data-global-search-job]");
+  if (!result) return;
+  elements.search.value = elements.globalSearch.value.trim();
+  state.searchMatchIndex = 0;
+  elements.globalSearchResults.hidden = true;
+  openTranscript(result.dataset.globalSearchJob);
 });
 elements.search.addEventListener("input", () => {
   state.searchMatchIndex = 0;
@@ -727,13 +726,6 @@ elements.navLinks.forEach((link) => link.addEventListener("click", (event) => {
   setView(link.dataset.view);
 }));
 elements.projectNav.addEventListener("click", (event) => {
-  const createToggle = event.target.closest("button[data-project-create-toggle]");
-  if (createToggle) {
-    state.projectCreateVisible = !state.projectCreateVisible;
-    renderProjectNav();
-    if (state.projectCreateVisible) requestAnimationFrame(() => elements.projectNav.querySelector("input[name='projectName']")?.focus());
-    return;
-  }
   const folder = event.target.closest("button[data-project-toggle]");
   if (folder) {
     const projectId = folder.dataset.projectToggle;
@@ -744,7 +736,7 @@ elements.projectNav.addEventListener("click", (event) => {
   }
   const file = event.target.closest("button[data-project-nav-job-id]");
   if (file) {
-    toggleInlineTranscript(file.dataset.projectNavJobId);
+    openTranscript(file.dataset.projectNavJobId);
     return;
   }
   const target = event.target.closest("button[data-project-nav-id]");
@@ -754,37 +746,6 @@ elements.projectNav.addEventListener("click", (event) => {
     renderProjectNav();
     renderLibrary();
   }
-});
-elements.projectNav.addEventListener("submit", (event) => {
-  const form = event.target.closest("form[data-project-create-form]");
-  if (!form) return;
-  event.preventDefault();
-  const name = new FormData(form).get("projectName");
-  void createProject(String(name || ""));
-});
-elements.projectNav.addEventListener("dragstart", beginProjectDrag);
-elements.projectNav.addEventListener("dragend", endProjectDrag);
-elements.projectNav.addEventListener("dragover", (event) => {
-  const folder = event.target.closest("[data-drop-project-id]");
-  if (!folder || !state.draggedJobId) return;
-  event.preventDefault();
-  clearProjectDropTargets();
-  folder.classList.add("drop-target");
-  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-});
-elements.projectNav.addEventListener("dragleave", (event) => {
-  const folder = event.target.closest("[data-drop-project-id]");
-  if (folder && !folder.contains(event.relatedTarget)) folder.classList.remove("drop-target");
-});
-elements.projectNav.addEventListener("drop", (event) => {
-  const folder = event.target.closest("[data-drop-project-id]");
-  if (!folder || !state.draggedJobId) return;
-  event.preventDefault();
-  const jobId = state.draggedJobId;
-  const projectId = folder.dataset.dropProjectId;
-  state.draggedJobId = null;
-  clearProjectDropTargets();
-  void moveJobToProject(jobId, projectId);
 });
 window.addEventListener("hashchange", () => setView(window.location.hash === "#library" ? "library" : "workspace", false));
 elements.audioPlayer.addEventListener("loadedmetadata", () => { updatePlaybackStatus(); syncPlaybackHighlight({ scroll: false }); });

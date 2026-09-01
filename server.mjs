@@ -71,7 +71,6 @@ const defaultConfig = {
 };
 
 const jobs = new Map();
-const projects = new Map();
 const pendingJobIds = [];
 let activeJobId = null;
 let config = defaultConfig;
@@ -134,16 +133,10 @@ function safeProjectName(input) {
   return (name || "Untitled project").slice(0, 80);
 }
 
-function ensureProject(input) {
+function projectFromHeader(input) {
   const name = safeProjectName(input);
   const key = createHash("sha256").update(name.toLocaleLowerCase()).digest("hex").slice(0, 16);
-  const id = `project-${key}`;
-  if (!projects.has(id)) projects.set(id, { id, name, createdAt: new Date().toISOString() });
-  return projects.get(id);
-}
-
-function projectFromHeader(input) {
-  return ensureProject(input);
+  return { id: `project-${key}`, name };
 }
 
 function safeFileStem(input) {
@@ -207,26 +200,18 @@ function wrapPdfText(value, maximum = 89) {
   return lines;
 }
 
-const pdfPalette = {
-  ink: "0.12 0.17 0.11",
-  muted: "0.32 0.39 0.29",
-  rule: "0.84 0.88 0.81",
-  olive: "0.20 0.29 0.18",
-  brass: "0.82 0.68 0.34"
-};
-
-function pdfTextCommand(text, x, y, size, font = "F1", color = pdfPalette.ink) {
+function pdfTextCommand(text, x, y, size, font = "F1", color = "0.11 0.13 0.23") {
   return `BT /${font} ${size} Tf ${color} rg 1 0 0 1 ${x} ${y} Tm (${pdfSafeText(text)}) Tj ET`;
 }
 
 function pdfBrandCommands(fileName, pageNumber, documentLabel = "PRIVATE LOCAL TRANSCRIPT") {
   return [
-    `q ${pdfPalette.olive} rg 46 736 26 26 re f ${pdfPalette.brass} rg 52 742 4 8 re f 59 739 4 14 re f 66 743 4 7 re f Q`,
+    "q 0.46 0.35 0.91 rg 46 736 26 26 re f 0.78 0.72 1 rg 52 742 4 8 re f 59 739 4 14 re f 66 743 4 7 re f Q",
     pdfTextCommand("CID EchoTrace Local", 82, 747, 14, "F2"),
-    pdfTextCommand(documentLabel, 82, 733, 7, "F2", pdfPalette.muted),
-    `${pdfPalette.rule} RG 46 716 m 566 716 l S`,
-    pdfTextCommand(fileName, 46, 700, 8, "F1", pdfPalette.muted),
-    pdfTextCommand(`Page ${pageNumber}`, 522, 700, 8, "F1", pdfPalette.muted)
+    pdfTextCommand(documentLabel, 82, 733, 7, "F2", "0.42 0.45 0.58"),
+    "0.90 0.91 0.95 RG 46 716 m 566 716 l S",
+    pdfTextCommand(fileName, 46, 700, 8, "F1", "0.40 0.43 0.54"),
+    pdfTextCommand(`Page ${pageNumber}`, 522, 700, 8, "F1", "0.40 0.43 0.54")
   ];
 }
 
@@ -251,11 +236,11 @@ async function createTranscriptPdf(destinationPath, job) {
       ...pdfBrandCommands(job.name, pageIndex + 1),
       ...(pageIndex === 0 ? [
         pdfTextCommand("Transcript", 46, 675, 19, "F2"),
-        pdfTextCommand(`Project: ${job.projectName}`, 46, 658, 9, "F1", pdfPalette.muted),
-        pdfTextCommand(`Created locally ${new Date().toLocaleString("en-US")}`, 46, 644, 9, "F1", pdfPalette.muted),
-        `${pdfPalette.rule} RG 46 632 m 566 632 l S`
+        pdfTextCommand(`Project: ${job.projectName}`, 46, 658, 9, "F1", "0.36 0.39 0.50"),
+        pdfTextCommand(`Created locally ${new Date().toLocaleString("en-US")}`, 46, 644, 9, "F1", "0.36 0.39 0.50"),
+        "0.92 0.92 0.96 RG 46 632 m 566 632 l S"
       ] : []),
-      ...lines.map((line, lineIndex) => pdfTextCommand(line, 46, (pageIndex === 0 ? 612 : 676) - (lineIndex * 13), 9.5, "F1", pdfPalette.ink))
+      ...lines.map((line, lineIndex) => pdfTextCommand(line, 46, (pageIndex === 0 ? 612 : 676) - (lineIndex * 13), 9.5, "F1", "0.17 0.19 0.29"))
     ];
     const stream = commands.join("\n");
     objects[contentObjectId] = `<< /Length ${Buffer.byteLength(stream, "latin1")} >>\nstream\n${stream}\nendstream`;
@@ -286,10 +271,10 @@ async function createProjectPortfolioPdf(destinationPath, projectName, projectJo
 
   const pages = [];
   const coverRows = [
-    `Includes ${completedJobs.length} completed ${completedJobs.length === 1 ? "transcription" : "transcriptions"}.`,
+    `Includes ${completedJobs.length} completed ${completedJobs.length === 1 ? "PDF transcription" : "PDF transcriptions"} from this project folder.`,
     "Each section retains the timestamps produced by the local transcription engine.",
     "",
-    "Included source files:"
+    "Included PDF transcriptions:"
   ];
   for (const [index, job] of completedJobs.entries()) {
     coverRows.push(...wrapPdfText(`${index + 1}. ${job.name}`, 84));
@@ -338,24 +323,24 @@ async function createProjectPortfolioPdf(destinationPath, projectName, projectJo
     if (isCover) {
       commands.push(
         pdfTextCommand(page.continuation ? "Project transcription portfolio - continued" : "Project transcription portfolio", 46, 675, 19, "F2"),
-        pdfTextCommand(`Project: ${projectName}`, 46, 658, 9, "F1", pdfPalette.muted),
-        pdfTextCommand(`Created locally ${new Date().toLocaleString("en-US")}`, 46, 644, 9, "F1", pdfPalette.muted),
-        `${pdfPalette.rule} RG 46 632 m 566 632 l S`
+        pdfTextCommand(`Project: ${projectName}`, 46, 658, 9, "F1", "0.36 0.39 0.50"),
+        pdfTextCommand(`Created locally ${new Date().toLocaleString("en-US")}`, 46, 644, 9, "F1", "0.36 0.39 0.50"),
+        "0.92 0.92 0.96 RG 46 632 m 566 632 l S"
       );
       rowStart = 612;
     } else if (!page.continuation) {
       commands.push(
         pdfTextCommand(`Transcript ${page.jobIndex} of ${page.totalJobs}`, 46, 675, 18, "F2"),
-        ...wrapPdfText(page.job.name, 76).slice(0, 2).map((line, index) => pdfTextCommand(line, 46, 657 - (index * 12), 9, "F1", pdfPalette.muted)),
-        pdfTextCommand(`Project: ${projectName}`, 46, 632, 9, "F1", pdfPalette.muted),
-        `${pdfPalette.rule} RG 46 620 m 566 620 l S`
+        ...wrapPdfText(page.job.name, 76).slice(0, 2).map((line, index) => pdfTextCommand(line, 46, 657 - (index * 12), 9, "F1", "0.36 0.39 0.50")),
+        pdfTextCommand(`Project: ${projectName}`, 46, 632, 9, "F1", "0.36 0.39 0.50"),
+        "0.92 0.92 0.96 RG 46 620 m 566 620 l S"
       );
       rowStart = 600;
     } else {
-      commands.push(pdfTextCommand(`Transcript ${page.jobIndex} of ${page.totalJobs} - continued`, 46, 675, 10, "F2", pdfPalette.muted));
+      commands.push(pdfTextCommand(`Transcript ${page.jobIndex} of ${page.totalJobs} - continued`, 46, 675, 10, "F2", "0.36 0.39 0.50"));
       rowStart = 657;
     }
-    commands.push(...page.rows.map((line, lineIndex) => pdfTextCommand(line, 46, rowStart - (lineIndex * 12), 9.5, "F1", pdfPalette.ink)));
+    commands.push(...page.rows.map((line, lineIndex) => pdfTextCommand(line, 46, rowStart - (lineIndex * 12), 9.5, "F1", "0.17 0.19 0.29")));
     const stream = commands.join("\n");
     const contentObjectId = objects.length;
     const pageObjectId = contentObjectId + 1;
@@ -405,46 +390,8 @@ function publicJob(job) {
   };
 }
 
-function publicProjects() {
-  const projectStats = new Map();
-  for (const job of jobs.values()) {
-    const projectId = job.projectId || "legacy-project";
-    if (!projectStats.has(projectId)) projectStats.set(projectId, { jobs: 0, completed: 0 });
-    const stats = projectStats.get(projectId);
-    stats.jobs += 1;
-    if (job.state === "completed") stats.completed += 1;
-  }
-  const knownProjects = new Map(projects);
-  for (const job of jobs.values()) {
-    if (!knownProjects.has(job.projectId)) knownProjects.set(job.projectId, { id: job.projectId, name: job.projectName || "Ungrouped files", createdAt: job.createdAt });
-  }
-  return [...knownProjects.values()].map((project) => ({
-    id: project.id,
-    name: project.name,
-    createdAt: project.createdAt,
-    jobs: projectStats.get(project.id)?.jobs || 0,
-    completed: projectStats.get(project.id)?.completed || 0
-  })).sort((left, right) => left.name.localeCompare(right.name));
-}
-
 async function removeIfPresent(target) {
   await fsp.rm(target, { force: true }).catch(() => undefined);
-}
-
-async function readJsonBody(request, maximumBytes = 32768) {
-  let length = 0;
-  const chunks = [];
-  for await (const chunk of request) {
-    length += chunk.length;
-    if (length > maximumBytes) throw new Error("This local request is too large.");
-    chunks.push(chunk);
-  }
-  if (!chunks.length) return {};
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } catch {
-    throw new Error("The local request must contain valid JSON.");
-  }
 }
 
 function run(command, args, onLine = () => {}) {
@@ -809,11 +756,38 @@ async function copyPackageFile(sourcePath, destinationPath) {
   }
 }
 
+function completedProjectTranscriptions(projectJobs) {
+  return projectJobs.filter((job) => job.state === "completed" && String(job.transcript || "").trim());
+}
+
+function expectedTranscriptPdfPath(job) {
+  return job.outputFiles?.pdfPath || path.join(exportsDir, `${job.id}-${path.parse(job.name).name}.pdf`);
+}
+
+async function ensureProjectPdfTranscriptions(projectJobs) {
+  const completedJobs = completedProjectTranscriptions(projectJobs);
+  if (!completedJobs.length) throw new Error("Complete at least one transcription before creating a project PDF portfolio.");
+  await Promise.all(completedJobs.map(async (job) => {
+    const pdfPath = expectedTranscriptPdfPath(job);
+    try {
+      await fsp.access(pdfPath);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      // A transcript can still be valid if its individual PDF was removed
+      // outside the app. Rebuild it before the portfolio so every completed
+      // transcription in this project has a corresponding PDF section.
+      await fsp.mkdir(path.dirname(pdfPath), { recursive: true });
+      await createTranscriptPdf(pdfPath, job);
+    }
+    job.outputFiles = { ...(job.outputFiles || {}), pdfPath };
+  }));
+  return completedJobs;
+}
+
 async function createProjectPortfolio(projectId) {
   const projectJobs = [...jobs.values()].filter((job) => job.projectId === projectId);
   if (!projectJobs.length) throw new Error("This project has no local files.");
-  const completedJobs = projectJobs.filter((job) => job.state === "completed" && String(job.transcript || "").trim());
-  if (!completedJobs.length) throw new Error("Complete at least one transcription before creating a project PDF portfolio.");
+  const completedJobs = await ensureProjectPdfTranscriptions(projectJobs);
   const projectName = projectJobs[0].projectName;
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const fileName = `${safeFileStem(projectName)}-portfolio-${stamp}.pdf`;
@@ -833,7 +807,10 @@ async function packageProject(projectId) {
   const audioDir = path.join(bundleDir, "audio");
   const transcriptsDir = path.join(bundleDir, "transcripts");
   await Promise.all([fsp.mkdir(audioDir, { recursive: true }), fsp.mkdir(transcriptsDir, { recursive: true })]);
-  const completedJobs = projectJobs.filter((job) => job.state === "completed" && String(job.transcript || "").trim());
+  const completedJobs = await ensureProjectPdfTranscriptions(projectJobs).catch((error) => {
+    if (/Complete at least one transcription/.test(String(error.message || error))) return [];
+    throw error;
+  });
   let portfolioFileName = null;
   if (completedJobs.length) {
     portfolioFileName = `${safeFileStem(projectName)}-portfolio.pdf`;
@@ -865,7 +842,7 @@ async function packageProject(projectId) {
     application: "CID EchoTrace Local",
     projectName,
     packagedAt: new Date().toISOString(),
-    note: "This package was created locally. Audio files are original uploads; completed transcript exports and a combined PDF portfolio are included when available.",
+    note: "This package was created locally. Audio files are original uploads; every completed transcript's PDF export and one combined PDF portfolio are included when available.",
     portfolio: portfolioFileName,
     jobs: manifestJobs
   }, null, 2), "utf8");
@@ -934,22 +911,7 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, await engineHealth());
   }
   if (request.method === "GET" && url.pathname === "/api/jobs") {
-    return sendJson(response, 200, { jobs: [...jobs.values()].map(publicJob).sort((a, b) => b.createdAt.localeCompare(a.createdAt)), projects: publicProjects() });
-  }
-  if (request.method === "GET" && url.pathname === "/api/projects") {
-    return sendJson(response, 200, { projects: publicProjects() });
-  }
-  if (request.method === "POST" && url.pathname === "/api/projects") {
-    try {
-      const payload = await readJsonBody(request);
-      const name = String(payload?.name || "").trim();
-      if (!name) return sendError(response, 400, "Enter a project folder name.");
-      const existed = [...projects.values()].some((project) => project.name.localeCompare(name, undefined, { sensitivity: "accent" }) === 0);
-      const project = ensureProject(name);
-      return sendJson(response, existed ? 200 : 201, { project: { ...project, jobs: 0, completed: 0 } });
-    } catch (error) {
-      return sendError(response, 400, String(error.message || error));
-    }
+    return sendJson(response, 200, { jobs: [...jobs.values()].map(publicJob).sort((a, b) => b.createdAt.localeCompare(a.createdAt)) });
   }
   if (request.method === "POST" && url.pathname === "/api/jobs") {
     const suppliedName = safeFileName(request.headers["x-file-name"]);
@@ -1038,24 +1000,6 @@ async function handleApi(request, response, url) {
     const job = jobs.get(segments[2]);
     if (!job) return sendError(response, 404, "This local transcription session no longer exists.");
     if (request.method === "GET" && segments.length === 3) return sendJson(response, 200, { job: publicJob(job) });
-    if (request.method === "PATCH" && segments.length === 4 && segments[3] === "project") {
-      if (job.state === "uploading") return sendError(response, 409, "Wait for this file to finish adding before moving it to another project.");
-      try {
-        const payload = await readJsonBody(request);
-        const projectId = String(payload?.projectId || "");
-        const project = projects.get(projectId);
-        if (!project) return sendError(response, 404, "Choose an existing local project folder.");
-        job.projectId = project.id;
-        job.projectName = project.name;
-        // Keep an existing individual PDF accurate after a completed file is
-        // reorganized. TXT/SRT do not contain project metadata, but the PDF
-        // header does and should follow the recording into its new folder.
-        if (job.state === "completed" && job.outputFiles?.pdfPath) await createTranscriptPdf(job.outputFiles.pdfPath, job);
-        return sendJson(response, 200, { job: publicJob(job), projects: publicProjects() });
-      } catch (error) {
-        return sendError(response, 400, String(error.message || error));
-      }
-    }
     if (request.method === "DELETE" && segments.length === 3) {
       if (job.state === "processing" || job.state === "uploading") return sendError(response, 409, "Wait for the active job to finish before clearing it.");
       jobs.delete(job.id);
