@@ -179,4 +179,14 @@ body.transcript-selected .transcript-panel { margin-top: 0; }
 .upload-project-field { position: relative; display: grid; grid-template-columns: auto minmax(160px, 245px); align-items: center; gap: 8px; width: min(100%, 360px); margin-top: 14px; color: #5a6854; font-size: 9px; font-weight: 800; letter-spacing: .35px; text-align: left; text-transform: uppercase; }
 .upload-project-field input { min-width: 0; width: 100%; padding: 8px 9px; border: 1px solid #d2ddca; border-radius: 7px; outline: 0; color: #3d4b38; background: #fffffc; font: inherit; font-size: 10px; font-weight: 650; letter-spacing: 0; text-transform: none; }.upload-project-field input:focus { border-color: #91a97c; box-shadow: 0 0 0 3px #e4ecdc; }.upload-project-field input::placeholder { color: #97a091; }
 
+/* Speaker labels stay adjacent to the timestamp so a reviewer's eye can
+   follow both the timeline and the active voice. Channel labels are generated
+   only from true two-channel recordings; every tag remains locally editable. */
+.speaker-summary { color: #526b46; background: #edf4e8; }.speaker-summary strong { color: #354d2c; }
+.transcript-line { grid-template-columns: 90px minmax(88px, 112px) minmax(0, 1fr); gap: 12px; }
+.speaker-tag { align-self: start; width: max-content; max-width: 112px; overflow: hidden; padding: 4px 6px; border: 1px solid transparent; border-radius: 5px; font-size: 8px; font-weight: 800; letter-spacing: .18px; line-height: 1.25; text-align: left; text-overflow: ellipsis; white-space: nowrap; transition: .15s ease; }
+.speaker-tag.channel-a { color: #2f5d52; border-color: #b9d9cf; background: #e8f5f0; }.speaker-tag.channel-b { color: #6a4a2a; border-color: #ead4af; background: #fff5e4; }.speaker-tag.overlap { color: #765048; border-color: #e8c9c3; background: #fff0ed; }.speaker-tag.manual { color: #4c5d75; border-color: #cbd7e8; background: #eef3fa; }.speaker-tag.unassigned { color: #778174; border-color: #d8dfd2; background: #f7f9f5; }
+.speaker-tag:hover { border-color: #9fb18e; color: #2f4f28; background: #e8f1e2; }.speaker-tag:focus-visible { outline: 2px solid #9caf8b; outline-offset: 1px; }
+@media (max-width: 1120px) { .transcript-line { grid-template-columns: 76px minmax(76px, 98px) minmax(0, 1fr); gap: 9px; }.speaker-tag { max-width: 98px; } }
+
 @media (max-width: 1180px) { .global-search { min-width: 220px; }.global-search-field input { font-size: 9px; }.topbar-actions { gap: 8px; } }

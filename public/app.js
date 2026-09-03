@@ -343,8 +343,32 @@ function durationLabel(job) {
   return minutes ? `${minutes} min ${String(seconds % 60).padStart(2, "0")} sec` : `${seconds} sec`;
 }
 
-function wordCount(text) {
+function wordCount(job) {
+  const text = job.segments?.length ? job.segments.map((segment) => segment.text || "").join(" ") : job.transcript;
   return text.trim() ? text.trim().split(/\s+/).length : 0;
+}
+
+function speakerSummary(job) {
+  const labeled = (job.segments || []).filter((segment) => segment.speaker).length;
+  if (job.diarization?.mode === "stereo-channel") {
+    const count = Number(job.diarization.speakerCount) || 0;
+    return `<span class="summary-chip speaker-summary"><strong>${count || 2} speaker${count === 1 ? "" : "s"}</strong> · separated stereo channels</span>`;
+  }
+  if (labeled) {
+    const count = new Set(job.segments.map((segment) => segment.speakerKey).filter(Boolean)).size;
+    return `<span class="summary-chip speaker-summary"><strong>${count} local speaker label${count === 1 ? "" : "s"}</strong></span>`;
+  }
+  return `<span class="summary-chip speaker-summary">Mono source · <strong>assign speaker tags</strong></span>`;
+}
+
+function speakerTag(segment) {
+  const id = escapeHtml(segment.id);
+  if (!segment.speaker) {
+    return `<button class="speaker-tag unassigned" type="button" data-assign-speaker-segment="${id}" title="Assign a local speaker label to this segment">Assign speaker</button>`;
+  }
+  const speakerKey = escapeHtml(segment.speakerKey || "manual");
+  const channelClass = segment.speakerKey === "channel-0" ? "channel-a" : segment.speakerKey === "channel-1" ? "channel-b" : segment.speakerKey === "channel-mixed" ? "overlap" : "manual";
+  return `<button class="speaker-tag ${channelClass}" type="button" data-rename-speaker-key="${speakerKey}" title="Rename this speaker throughout the local transcript">${escapeHtml(segment.speaker)}</button>`;
 }
 
 function highlight(text, query) {
@@ -496,7 +520,7 @@ function renderTranscript() {
   if (state.view !== "workspace") return;
   elements.pageTitle.textContent = titleFromFile(job.name);
   elements.transcriptTitle.textContent = titleFromFile(job.name);
-  elements.transcriptSummary.innerHTML = `<span class="summary-chip"><strong>${wordCount(job.transcript)}</strong> words</span><span class="summary-chip">${durationLabel(job)}</span><span class="summary-chip">${escapeHtml(job.modelLabel)}</span>${["txt", "srt", "pdf"].map((format) => `<a class="export-button" href="/api/jobs/${job.id}/export?format=${format}" download>Export ${format.toUpperCase()}</a>`).join("")}`;
+  elements.transcriptSummary.innerHTML = `<span class="summary-chip"><strong>${wordCount(job)}</strong> words</span><span class="summary-chip">${durationLabel(job)}</span>${speakerSummary(job)}<span class="summary-chip">${escapeHtml(job.modelLabel)}</span>${["txt", "srt", "pdf"].map((format) => `<a class="export-button" href="/api/jobs/${job.id}/export?format=${format}" download>Export ${format.toUpperCase()}</a>`).join("")}`;
   elements.audioReview.hidden = !job.mediaAvailable;
   if (job.mediaAvailable) configurePlaybackPlayer(job);
   else resetPlaybackPlayer();
@@ -509,7 +533,7 @@ function renderTranscript() {
     const timestamp = hasTimestamp
       ? `<button class="timestamp" type="button" data-seek-ms="${segment.startMs}" aria-label="Play from ${escapeHtml(segment.start)}">${escapeHtml(segment.start)}</button>`
       : `<time class="timestamp">${escapeHtml(segment.start || "Transcript")}</time>`;
-    return `<article class="transcript-line" data-segment-row="${escapeHtml(segment.id)}">${timestamp}<div class="segment-text" contenteditable="true" spellcheck="true" data-segment="${escapeHtml(segment.id)}">${highlight(segment.text, query)}</div></article>`;
+    return `<article class="transcript-line" data-segment-row="${escapeHtml(segment.id)}">${timestamp}${speakerTag(segment)}<div class="segment-text" contenteditable="true" spellcheck="true" data-segment="${escapeHtml(segment.id)}">${highlight(segment.text, query)}</div></article>`;
   }).join("");
   updateSearchMatches();
   state.activeSegmentId = null;
@@ -552,6 +576,15 @@ function setPolling(active) {
   }
 }
 
+function formatStorageBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return "unknown size";
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KiB`;
+  if (bytes < 1024 ** 3) return `${(bytes / (1024 ** 2)).toFixed(1)} MiB`;
+  return `${(bytes / (1024 ** 3)).toFixed(1)} GiB`;
+}
+
 async function uploadFiles(files) {
   const selectedFiles = [...(files || [])];
   if (!selectedFiles.length) return;
@@ -561,8 +594,11 @@ async function uploadFiles(files) {
     elements.settingsButton.click();
     return;
   }
-  const oversized = selectedFiles.find((file) => file.size > state.health.maxUploadBytes);
-  if (oversized) return showToast(`${oversized.name} is larger than this workspace's configured limit.`, "error");
+  const maximumBytes = Number(state.health?.maxUploadBytes);
+  const oversized = Number.isSafeInteger(maximumBytes) && maximumBytes > 0
+    ? selectedFiles.find((file) => file.size > maximumBytes)
+    : null;
+  if (oversized) return showToast(`${oversized.name} is ${formatStorageBytes(oversized.size)}. CID EchoTrace accepts local files up to ${formatStorageBytes(maximumBytes)}.`, "error");
   elements.dropCard.classList.remove("dragging");
   elements.browseButton.disabled = true;
   let added = 0;
@@ -616,6 +652,52 @@ async function clearJob(id) {
     showToast("The local transcript, exports, and review audio were cleared.");
   } catch (error) {
     showToast(error.message, "error");
+  }
+}
+
+function applyUpdatedJob(updated) {
+  state.jobs = state.jobs.map((job) => job.id === updated.id ? updated : job);
+  renderJobs();
+  renderProjectNav();
+  renderLibrary();
+  renderTranscript();
+  renderGlobalSearch();
+}
+
+async function renameSpeaker(speakerKey) {
+  const job = selectedCompletedJob();
+  const segment = job?.segments?.find((candidate) => candidate.speakerKey === speakerKey);
+  if (!job || !segment) return;
+  const nextName = window.prompt(`Rename ${segment.speaker} everywhere in this local transcript:`, segment.speaker);
+  if (nextName === null) return;
+  try {
+    const result = await request(`/api/jobs/${encodeURIComponent(job.id)}/speakers/${encodeURIComponent(speakerKey)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: nextName })
+    });
+    applyUpdatedJob(result.job);
+    showToast("Speaker label updated in the transcript and local exports.");
+  } catch (error) {
+    showToast(error.message || "That speaker label could not be updated.", "error");
+  }
+}
+
+async function assignSpeakerToSegment(segmentId) {
+  const job = selectedCompletedJob();
+  if (!job) return;
+  const nextName = window.prompt("Label this transcript segment (for example: Investigator, Caller, Speaker 1):", "Speaker 1");
+  if (nextName === null) return;
+  try {
+    const result = await request(`/api/jobs/${encodeURIComponent(job.id)}/segments/${encodeURIComponent(segmentId)}/speaker`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: nextName })
+    });
+    applyUpdatedJob(result.job);
+    showToast("Speaker label added to this segment and local exports.");
+  } catch (error) {
+    showToast(error.message || "That speaker label could not be added.", "error");
   }
 }
 
@@ -675,8 +757,17 @@ elements.libraryList.addEventListener("click", (event) => {
 });
 elements.transcriptBody.addEventListener("click", (event) => {
   const timestamp = event.target.closest("button[data-seek-ms]");
-  if (!timestamp) return;
-  void playFrom(Number(timestamp.dataset.seekMs));
+  if (timestamp) {
+    void playFrom(Number(timestamp.dataset.seekMs));
+    return;
+  }
+  const rename = event.target.closest("button[data-rename-speaker-key]");
+  if (rename) {
+    void renameSpeaker(rename.dataset.renameSpeakerKey);
+    return;
+  }
+  const assign = event.target.closest("button[data-assign-speaker-segment]");
+  if (assign) void assignSpeakerToSegment(assign.dataset.assignSpeakerSegment);
 });
 elements.globalSearch.addEventListener("input", renderGlobalSearch);
 elements.globalSearch.addEventListener("keydown", (event) => {

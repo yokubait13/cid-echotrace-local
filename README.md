@@ -20,14 +20,22 @@ The installed Windows application deliberately has no analytics, cloud API calls
 - A local library view for the active app session, grouped by project and shown as expandable project folders in the left rail. Each project can export one combined branded PDF portfolio of all completed transcripts, or be packaged into a local folder containing the original audio/video files, completed TXT/SRT/PDF exports, that PDF portfolio, and a manifest.
 - Branded PDF transcript exports generated locally, with the CID EchoTrace Local name and a vector EchoTrace mark embedded directly in the document, using the same field-olive, brass, and parchment palette as the application.
 - Synchronized local review playback: the active transcript segment is highlighted while audio plays, and each timestamp jumps directly to that point in the recording. Transcript search highlights every match, shows the current match count, and provides a Next control (or Enter) to move through each result.
+- Local speaker differentiation: true two-channel recordings retain their separate channels through preparation and use bundled `whisper.cpp` stereo diarization to label the dominant channel as **Speaker A** or **Speaker B**; overlapping/indeterminate audio is marked clearly. Mono recordings expose an **Assign speaker** tag on each segment for reviewer-applied local labels. Renaming or assigning a label refreshes its TXT, SRT, PDF, portfolio, and project-package exports locally.
 - An intentionally original visual system inspired by the *interaction pattern* of a simple Whisper GUI—rather than by WizWhisp branding, logos, images, or source code.
 
 ## Installed-app requirements
 
 1. Windows 10/11 x64.
 2. No account, network connection, model download, Node.js, Python, `ffmpeg`, `whisper-cli`, CUDA Toolkit, or ICMV codec installation is required after installing CID EchoTrace Local. The installed edition offers an installer-time choice to enable its bundled CUDA runtime; an NVIDIA display driver is all that option requires.
+3. The local intake supports individual source files up to **64 GiB**. Ensure that the Windows account's app-data drive has at least the source-file size plus 1 GiB free before importing. Use NTFS or exFAT for files above 4 GiB; FAT32 cannot hold them.
 
 The package includes an official CUDA/cuBLAS build of `whisper.cpp`, a CPU fallback build, one fixed **Whisper Large v3 Turbo multilingual** GGML model, a local Silero voice-activity model, a static FFmpeg binary, and an x86 helper plus the supplied `icmv.acm` module. When an NVIDIA GPU and driver are available and CUDA acceleration was enabled in the installer, CID EchoTrace automatically uses the CUDA engine. If a target PC has no compatible NVIDIA GPU, GPU acceleration was declined during installation, or the GPU runtime cannot initialize, it retries the same file once using the bundled CPU engine. The installed app presents no model picker and requires no runtime configuration.
+
+### Speaker labels and their limits
+
+For a true stereo/two-channel recording, CID EchoTrace preserves the two source channels while normalizing to 16 kHz PCM and enables the included `whisper.cpp` stereo-diarization mode. This assigns a segment to the channel with clearly higher energy: **Speaker A** for the first/left channel, **Speaker B** for the second/right channel, and **Overlapping / unclear** when neither channel dominates. These are channel labels—not a claim that a voice has been biometrically identified—and they are especially useful for dual-channel interview, call-capture, and recorder exports.
+
+For one-channel/mono recordings, the software does not guess a person's identity. Each timestamped line instead displays **Assign speaker**, which stores a reviewer-entered label only in the local session. Click a populated tag to rename that label throughout the transcript. Both paths update the local TXT, SRT, individual PDF, portfolio PDF, and project folder package. No recording, embedding, or speaker label is sent to a service.
 
 ### ICMV Audio Codec compatibility
 
@@ -77,7 +85,31 @@ The build writes these distributables into `release/`:
 
 The application stores source media and generated exports under the current Windows user's app-data folder—not beside the installer and never within the read-only application archive. The bundled engine and model live inside the package and are selected automatically. The installed application does not create, read, or offer a model configuration file.
 
-The output executables are not code signed by this project. Sign the installer and portable executable with your own Windows code-signing certificate before distributing them beyond a controlled environment.
+### Signing a Windows release
+
+Release packaging is fail-closed: `npm run package:win` requires a Windows code-signing certificate and fails rather than producing an unsigned installer or portable executable. Use a code-signing certificate issued to the legal publisher that will distribute CID EchoTrace Local. A self-signed certificate is useful only for an internally managed test environment; it will not establish public Windows trust or remove SmartScreen warnings.
+
+Keep the certificate and its password outside the repository. The project ignores `.pfx` and `.p12` files. Before running the release build, make the certificate available only to the build environment:
+
+```powershell
+$env:WIN_CSC_LINK = 'C:\secure-build-assets\publisher-code-signing.pfx'
+$env:WIN_CSC_KEY_PASSWORD = '<certificate-password-from-your-secret-store>'
+npm run package:win
+Remove-Item Env:\WIN_CSC_LINK, Env:\WIN_CSC_KEY_PASSWORD
+```
+
+For CI, store the same values as protected, masked secrets rather than writing the certificate or password into `package.json`, a script, or the repository. Electron Builder then signs the application executables, the NSIS installer, and the portable executable and applies a timestamp so the signature remains valid after certificate expiry. With an EV certificate whose private key is held in a hardware token or cloud/HSM service, configure the signing provider or Windows certificate-store selection instead of exporting a `.pfx`.
+
+After each release build, verify both distributables before publishing:
+
+```powershell
+Get-ChildItem .\release\*.exe | ForEach-Object {
+  Get-AuthenticodeSignature -FilePath $_.FullName |
+    Select-Object Path, Status, StatusMessage, SignerCertificate, TimeStamperCertificate
+}
+```
+
+Both files must report `Status` as `Valid`, and the signer subject must match the intended publisher name.
 
 ## Privacy behavior
 
