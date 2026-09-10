@@ -15,8 +15,8 @@ import { spawn } from "node:child_process";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const runtimeDir = process.env.ECHOSCRIBE_DATA_DIR ? path.resolve(process.env.ECHOSCRIBE_DATA_DIR) : rootDir;
-const bundledEngineDir = process.env.ECHOSCRIBE_ENGINE_DIR ? path.resolve(process.env.ECHOSCRIBE_ENGINE_DIR) : null;
-const bundledModelDir = process.env.ECHOSCRIBE_MODEL_DIR ? path.resolve(process.env.ECHOSCRIBE_MODEL_DIR) : null;
+const bundledEngineDir = process.env.ECHOSCRIBE_ENGINE_DIR ? path.resolve(process.env.ECHOSCRIBE_ENGINE_DIR) : (fs.existsSync(path.join(rootDir, "vendor", "engine", "ffmpeg", "ffmpeg.exe")) ? path.join(rootDir, "vendor", "engine") : null);
+const bundledModelDir = process.env.ECHOSCRIBE_MODEL_DIR ? path.resolve(process.env.ECHOSCRIBE_MODEL_DIR) : (fs.existsSync(path.join(rootDir, "vendor", "models", "ggml-large-v3-turbo.bin")) ? path.join(rootDir, "vendor", "models") : null);
 const publicDir = path.join(rootDir, "public");
 const dataDir = path.join(runtimeDir, "data");
 const incomingDir = path.join(dataDir, "incoming");
@@ -41,6 +41,12 @@ const allowedExtensions = new Set([
   // Audio/video containers that routinely carry audio evidence
   ".3g2", ".3ga", ".3gp", ".asf", ".avi", ".divx", ".f4v", ".flv", ".m2t", ".m2ts", ".mkv", ".mov", ".mp4", ".mpe", ".mpeg", ".mpg", ".mts", ".mxf", ".ogv", ".ts", ".vob", ".webm", ".wmv"
 ]);
+const GIBIBYTE = 1024 ** 3;
+// Large recorder/video files are normal in case work. The app keeps a finite
+// ceiling to protect the local data drive, but it must not reject them at the
+// old, arbitrary 5 GiB boundary.
+const MAX_LOCAL_INPUT_BYTES = 64 * GIBIBYTE;
+const UPLOAD_STORAGE_HEADROOM_BYTES = GIBIBYTE;
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -63,7 +69,7 @@ const defaultConfig = {
   // when an uploaded WAV actually needs it; it never installs the codec.
   icmvDecoderPath: process.env.ICMV_DECODER_PATH || (bundledEngineDir ? path.join(bundledEngineDir, "icmv", "icmv-decode-x86.exe") : ""),
   icmvCodecPath: process.env.ICMV_CODEC_PATH || (bundledEngineDir ? path.join(bundledEngineDir, "icmv", "icmv.acm") : ""),
-  maxUploadBytes: 5 * 1024 * 1024 * 1024,
+  maxUploadBytes: MAX_LOCAL_INPUT_BYTES,
   models: {
     fast: { label: bundledModelDir ? "Included · Whisper Large v3 Turbo multilingual" : "Whisper Large v3 Turbo multilingual", path: bundledModelDir ? path.join(bundledModelDir, "ggml-large-v3-turbo.bin") : "./models/ggml-large-v3-turbo.bin" }
   },
@@ -71,6 +77,41 @@ const defaultConfig = {
 };
 
 const jobs = new Map();
+const cases = new Map();
+const catalogPath = path.join(dataDir, "case-catalog.json");
+let catalogWrites = Promise.resolve();
+
+function saveCatalog() {
+  const snapshot = JSON.stringify({ version: 1, cases: [...cases.values()], jobs: [...jobs.values()] });
+  const write = catalogWrites.catch(() => {}).then(async () => {
+    await fsp.writeFile(`${catalogPath}.tmp`, snapshot, "utf8");
+    await fsp.rename(`${catalogPath}.tmp`, catalogPath);
+  });
+  catalogWrites = write;
+  return write;
+}
+
+async function loadCatalog() {
+  let saved;
+  try { saved = JSON.parse(await fsp.readFile(catalogPath, "utf8")); }
+  catch (error) { if (error.code === "ENOENT") return; throw new Error(`Unable to read the case catalog: ${error.message}`); }
+  if (saved.version !== 1 || !Array.isArray(saved.cases) || !Array.isArray(saved.jobs)) throw new Error("Invalid case catalog; original file preserved.");
+  for (const item of saved.cases) cases.set(item.id, item);
+  for (const job of saved.jobs) {
+    if (["uploading", "queued", "processing"].includes(job.state)) {
+      job.state = "failed";
+      job.stage = "Interrupted by app shutdown";
+      job.error = "Processing was interrupted. The local source copy is retained; add the original recording again to retry.";
+    }
+    jobs.set(job.id, job);
+    if (!cases.has(job.projectId)) cases.set(job.projectId, { id: job.projectId, name: job.projectName });
+  }
+}
+
+function caseName(value) {
+  if (typeof value !== "string" || !value.trim() || value.trim().length > 80 || /[\x00-\x1f]/.test(value)) throw new Error("Enter a case name or number of 1–80 characters.");
+  return value.trim();
+}
 const pendingJobIds = [];
 let activeJobId = null;
 let config = defaultConfig;
@@ -136,7 +177,7 @@ function safeProjectName(input) {
 function projectFromHeader(input) {
   const name = safeProjectName(input);
   const key = createHash("sha256").update(name.toLocaleLowerCase()).digest("hex").slice(0, 16);
-  return { id: `project-${key}`, name };
+  return [...cases.values()].find((item) => item.name.toLowerCase() === name.toLowerCase()) || { id: cases.has(`project-${key}`) ? `case-${randomUUID()}` : `project-${key}`, name };
 }
 
 function safeFileStem(input) {
@@ -167,6 +208,40 @@ function formatProjectTimestamp(milliseconds) {
   const minutes = Math.floor((total % 3600000) / 60000);
   const seconds = Math.floor((total % 60000) / 1000);
   return [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
+}
+
+function formatSrtTimestamp(milliseconds) {
+  return formatTimestamp(milliseconds).replace(".", ",");
+}
+
+function speakerLabelForChannel(value) {
+  const channel = String(value ?? "").trim();
+  if (channel === "0") return { speakerKey: "channel-0", speaker: "Speaker A" };
+  if (channel === "1") return { speakerKey: "channel-1", speaker: "Speaker B" };
+  if (channel === "?") return { speakerKey: "channel-mixed", speaker: "Overlapping / unclear" };
+  return null;
+}
+
+function safeSpeakerLabel(value) {
+  return String(value ?? "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 48);
+}
+
+function speakerText(segment) {
+  const speaker = safeSpeakerLabel(segment?.speaker);
+  const text = String(segment?.text || "").trim();
+  return speaker ? `${speaker}: ${text}` : text;
+}
+
+function transcriptFromSegments(segments) {
+  return (segments || []).map(speakerText).filter(Boolean).join("\n");
+}
+
+function speakerCount(segments) {
+  return new Set((segments || []).map((segment) => segment.speakerKey).filter((key) => key && key !== "channel-mixed")).size;
 }
 
 function pdfSafeText(value) {
@@ -217,7 +292,7 @@ function pdfBrandCommands(fileName, pageNumber, documentLabel = "PRIVATE LOCAL T
 
 async function createTranscriptPdf(destinationPath, job) {
   const transcriptRows = job.segments?.length
-    ? job.segments.flatMap((segment) => wrapPdfText(`${formatProjectTimestamp(segment.startMs)}  ${segment.text}`, 83))
+    ? job.segments.flatMap((segment) => wrapPdfText(`${formatProjectTimestamp(segment.startMs)}  ${speakerText(segment)}`, 83))
     : String(job.transcript || "").split(/\r?\n/).flatMap((line) => wrapPdfText(line, 89));
   const pages = [];
   const linesPerPage = 43;
@@ -289,7 +364,7 @@ async function createProjectPortfolioPdf(destinationPath, projectName, projectJo
 
   for (const [jobIndex, job] of completedJobs.entries()) {
     const transcriptRows = job.segments?.length
-      ? job.segments.flatMap((segment) => wrapPdfText(`${formatProjectTimestamp(segment.startMs)}  ${segment.text}`, 83))
+      ? job.segments.flatMap((segment) => wrapPdfText(`${formatProjectTimestamp(segment.startMs)}  ${speakerText(segment)}`, 83))
       : String(job.transcript || "").split(/\r?\n/).flatMap((line) => wrapPdfText(line, 89));
     const rows = transcriptRows.length ? transcriptRows : ["No transcript text was captured for this file."];
     let offset = 0;
@@ -383,6 +458,8 @@ function publicJob(job) {
     projectName: job.projectName,
     transcript: job.transcript || "",
     segments: job.segments || [],
+    inputChannelCount: job.inputChannelCount || null,
+    diarization: job.diarization ? { ...job.diarization, speakerCount: speakerCount(job.segments) } : null,
     error: job.error || null,
     processingDevice: job.processingDevice || null,
     mediaAvailable: job.state === "completed" && Boolean(job.playbackPath),
@@ -392,6 +469,43 @@ function publicJob(job) {
 
 async function removeIfPresent(target) {
   await fsp.rm(target, { force: true }).catch(() => undefined);
+}
+
+function formatStorageBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return "unknown size";
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KiB`;
+  if (bytes < GIBIBYTE) return `${(bytes / (1024 ** 2)).toFixed(1)} MiB`;
+  return `${(bytes / GIBIBYTE).toFixed(1)} GiB`;
+}
+
+function localStorageError(message) {
+  const error = new Error(message);
+  error.code = "ENOSPC";
+  return error;
+}
+
+async function availableStorageBytes(targetPath) {
+  // fs.statfs is available in the Electron runtime used by the packaged app.
+  // Keep a fallback so development on an older Node runtime remains usable.
+  if (typeof fsp.statfs !== "function") return null;
+  try {
+    const stats = await fsp.statfs(path.dirname(targetPath));
+    const available = Number(stats.bavail) * Number(stats.bsize);
+    return Number.isSafeInteger(available) && available >= 0 ? available : null;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureUploadStorage(destination, statedLength) {
+  if (!Number.isSafeInteger(statedLength) || statedLength <= 0) return;
+  const required = statedLength + UPLOAD_STORAGE_HEADROOM_BYTES;
+  const available = await availableStorageBytes(destination);
+  if (available !== null && available < required) {
+    throw localStorageError(`Not enough free local storage to receive this file. CID EchoTrace needs at least ${formatStorageBytes(required)} in its data location, but only ${formatStorageBytes(available)} is available.`);
+  }
 }
 
 function run(command, args, onLine = () => {}) {
@@ -440,13 +554,15 @@ function segmentsFromWhisperJson(payload) {
     const offsets = segment.offsets || {};
     const start = timestampToMs(timestamps.from ?? segment.start ?? offsets.from ?? 0);
     const end = timestampToMs(timestamps.to ?? segment.end ?? offsets.to ?? start);
+    const speaker = speakerLabelForChannel(segment.speaker);
     return {
       id: String(index + 1),
       startMs: start,
       endMs: Math.max(start, end),
       start: formatTimestamp(start),
       end: formatTimestamp(Math.max(start, end)),
-      text: String(segment.text || "").trim()
+      text: String(segment.text || "").trim(),
+      ...(speaker || {})
     };
   }).filter((segment) => segment.text);
 }
@@ -482,11 +598,23 @@ function ffmpegProgressReporter(job, startPercent, endPercent) {
   };
 }
 
-async function normalizeToWhisperWav(job, sourcePath, wavPath, startPercent, endPercent) {
-  // Keep the original evidence file unchanged. This temporary, 16 kHz mono
-  // copy removes sub-audible low-frequency noise and brings very quiet calls
-  // into a consistent speech range for the local model.
-  await run(config.ffmpegPath, ["-y", "-i", sourcePath, "-vn", "-ar", "16000", "-ac", "1", "-af", "highpass=f=80,loudnorm=I=-18:LRA=11:TP=-2", "-c:a", "pcm_s16le", wavPath], ffmpegProgressReporter(job, startPercent, endPercent));
+async function inspectAudioChannelCount(sourcePath) {
+  // ffprobe is not part of the compact static payload, so ask bundled FFmpeg
+  // to decode one frame locally and read its reported channel count. This
+  // accepts the same formats and private ICMV fallback as the main pipeline.
+  const output = await run(config.ffmpegPath, ["-hide_banner", "-i", sourcePath, "-map", "0:a:0", "-frames:a", "1", "-af", "ashowinfo", "-f", "null", "-"]);
+  const match = output.match(/\bchannels:(\d+)\b/i);
+  const channels = Number(match?.[1]);
+  return Number.isInteger(channels) && channels > 0 ? channels : 1;
+}
+
+async function normalizeToWhisperWav(job, sourcePath, wavPath, startPercent, endPercent, outputChannels = 1) {
+  // Preserve exactly two original channels when a recording contains them.
+  // whisper.cpp's built-in diarization then identifies the dominant channel
+  // per segment. Everything else is downmixed to mono as before so the app
+  // never invents speaker identities for single-channel evidence.
+  const channels = outputChannels === 2 ? "2" : "1";
+  await run(config.ffmpegPath, ["-y", "-i", sourcePath, "-vn", "-ar", "16000", "-ac", channels, "-af", "highpass=f=80,loudnorm=I=-18:LRA=11:TP=-2", "-c:a", "pcm_s16le", wavPath], ffmpegProgressReporter(job, startPercent, endPercent));
   job.progress = Math.max(job.progress || 0, endPercent);
 }
 
@@ -496,8 +624,15 @@ async function extractAudioForTranscription(job, wavPath, icmvWavPath) {
   try {
     // FFmpeg handles standard and legacy formats such as the supplied G.729
     // WAV directly. Do not send every non-PCM WAV through an old ACM driver.
-    await normalizeToWhisperWav(job, job.sourcePath, wavPath, 12, 36);
-    return;
+    const sourceChannels = await inspectAudioChannelCount(job.sourcePath).catch(() => 1);
+    const diarizationChannels = sourceChannels === 2 ? 2 : 1;
+    job.inputChannelCount = sourceChannels;
+    job.diarization = diarizationChannels === 2
+      ? { mode: "stereo-channel", sourceChannels, speakerLabels: ["Speaker A", "Speaker B"] }
+      : { mode: "manual", sourceChannels, speakerLabels: [] };
+    if (diarizationChannels === 2) job.stage = "Preparing stereo channels for speaker labels";
+    await normalizeToWhisperWav(job, job.sourcePath, wavPath, 12, 36, diarizationChannels);
+    return diarizationChannels;
   } catch (ffmpegError) {
     // ICMV remains a narrow fallback for legacy RIFF/WAV inputs that FFmpeg
     // does not recognise. For all other formats, preserve FFmpeg's diagnosis.
@@ -508,7 +643,15 @@ async function extractAudioForTranscription(job, wavPath, icmvWavPath) {
     if (!decodedIcmv) throw ffmpegError;
     job.stage = "Preparing decoded ICMV audio";
     job.progress = 23;
-    await normalizeToWhisperWav(job, icmvWavPath, wavPath, 23, 36);
+    const sourceChannels = await inspectAudioChannelCount(icmvWavPath).catch(() => 1);
+    const diarizationChannels = sourceChannels === 2 ? 2 : 1;
+    job.inputChannelCount = sourceChannels;
+    job.diarization = diarizationChannels === 2
+      ? { mode: "stereo-channel", sourceChannels, speakerLabels: ["Speaker A", "Speaker B"] }
+      : { mode: "manual", sourceChannels, speakerLabels: [] };
+    if (diarizationChannels === 2) job.stage = "Preparing decoded ICMV stereo channels for speaker labels";
+    await normalizeToWhisperWav(job, icmvWavPath, wavPath, 23, 36, diarizationChannels);
+    return diarizationChannels;
   }
 }
 
@@ -573,6 +716,28 @@ async function transcribeWithPreferredEngine(job, args, onLine) {
   await run(cpuPath, args, onLine);
 }
 
+function srtFromSegments(segments) {
+  return (segments || []).map((segment, index) => [
+    String(index + 1),
+    `${formatSrtTimestamp(segment.startMs)} --> ${formatSrtTimestamp(segment.endMs)}`,
+    speakerText(segment)
+  ].join("\r\n")).join("\r\n\r\n") + (segments?.length ? "\r\n" : "");
+}
+
+async function refreshTranscriptExports(job) {
+  const outputFiles = job.outputFiles || {};
+  const pdfPath = outputFiles.pdfPath;
+  if (!pdfPath) throw new Error("The local export location is unavailable.");
+  if (job.segments?.length) {
+    job.transcript = transcriptFromSegments(job.segments);
+    await Promise.all([
+      outputFiles.txtPath ? fsp.writeFile(outputFiles.txtPath, `${job.transcript}\r\n`, "utf8") : Promise.resolve(),
+      outputFiles.srtPath ? fsp.writeFile(outputFiles.srtPath, srtFromSegments(job.segments), "utf8") : Promise.resolve()
+    ]);
+  }
+  await createTranscriptPdf(pdfPath, job);
+}
+
 async function transcribe(job) {
   const jobDir = path.join(workspaceDir, job.id);
   const wavPath = path.join(jobDir, "audio.wav");
@@ -583,7 +748,7 @@ async function transcribe(job) {
 
   try {
     job.state = "processing";
-    await extractAudioForTranscription(job, wavPath, icmvWavPath);
+    const diarizationChannels = await extractAudioForTranscription(job, wavPath, icmvWavPath);
 
     // The original upload may use a codec Chromium cannot play (for example
     // legacy G.729 or ICMV WAV). Preserve the normalized local WAV instead so
@@ -596,6 +761,7 @@ async function transcribe(job) {
     const modelPath = resolvePath(config.models[job.modelId].path);
     // Keep transcript rows short enough for practical timestamp-based review.
     const args = ["-m", modelPath, "-f", wavPath, "-of", outputBase, "-oj", "-otxt", "-osrt", "--max-len", "96", "--print-progress"];
+    if (diarizationChannels === 2) args.push("--diarize");
     // whisper.cpp otherwise defaults to English. Always pass `auto` so a
     // multilingual model performs language detection for every upload.
     args.push("-l", job.language || "auto");
@@ -630,16 +796,16 @@ async function transcribe(job) {
     if (jsonPath) {
       segments = segmentsFromWhisperJson(JSON.parse(await fsp.readFile(jsonPath, "utf8")));
     }
-    const transcript = txtPath ? (await fsp.readFile(txtPath, "utf8")).trim() : segments.map((segment) => segment.text).join(" ");
-    if (!transcript) throw new Error("Whisper completed but did not create a readable transcript.");
+    const transcript = segments.length ? transcriptFromSegments(segments) : (txtPath ? (await fsp.readFile(txtPath, "utf8")).trim() : "");
+    if (!transcript) throw new Error("The local engine finished without readable speech text. Check that the recording contains audible speech, then try adding it again. The imported source copy is retained.");
 
     job.transcript = transcript;
     job.segments = segments;
     job.stage = "Creating your branded PDF";
     job.progress = 97;
     const pdfPath = `${outputBase}.pdf`;
-    await createTranscriptPdf(pdfPath, job);
-    job.outputFiles = { txtPath, srtPath, pdfPath };
+    job.outputFiles = { txtPath: txtPath || `${outputBase}.txt`, srtPath: srtPath || `${outputBase}.srt`, pdfPath };
+    await refreshTranscriptExports(job);
     job.internalFiles = [jsonPath].filter(Boolean);
     job.progress = 100;
     job.stage = "Ready";
@@ -664,6 +830,7 @@ async function processNextJob() {
   if (!job) return processNextJob();
   activeJobId = job.id;
   await transcribe(job);
+  await saveCatalog().catch((error) => console.error("Case catalog save failed:", error));
   activeJobId = null;
   void processNextJob();
 }
@@ -727,22 +894,74 @@ async function streamPlaybackWav(request, response, playbackPath) {
 }
 
 async function saveUpload(request, job, destination) {
-  const statedLength = Number(request.headers["content-length"] || 0);
-  if (statedLength > config.maxUploadBytes) throw new Error("This file exceeds the configured upload limit.");
+  const headerValue = request.headers["content-length"];
+  const statedLength = headerValue === undefined ? null : Number(headerValue);
+  if (statedLength !== null && (!Number.isSafeInteger(statedLength) || statedLength < 0)) {
+    throw new Error("The local browser sent an invalid file size.");
+  }
+  if (statedLength !== null && statedLength > config.maxUploadBytes) {
+    throw new Error(`This file is ${formatStorageBytes(statedLength)}. CID EchoTrace accepts local files up to ${formatStorageBytes(config.maxUploadBytes)}.`);
+  }
+  await ensureUploadStorage(destination, statedLength);
   await new Promise((resolve, reject) => {
     let received = 0;
     const output = fs.createWriteStream(destination, { flags: "wx" });
     request.on("data", (chunk) => {
       received += chunk.length;
       if (received > config.maxUploadBytes) {
-        request.destroy(new Error("This file exceeds the configured upload limit."));
+        const error = new Error(`This file exceeds CID EchoTrace's ${formatStorageBytes(config.maxUploadBytes)} local file limit.`);
+        output.destroy(error);
+        request.destroy(error);
       }
     });
     request.once("error", reject);
-    output.once("error", reject);
+    output.once("error", (error) => {
+      if (error.code === "ENOSPC" || error.code === "EFBIG") {
+        return reject(localStorageError("CID EchoTrace ran out of usable local storage while receiving this file. Free space in the app data drive, and use NTFS or exFAT rather than FAT32 for files above 4 GiB."));
+      }
+      reject(error);
+    });
     output.once("finish", resolve);
     request.pipe(output);
   });
+}
+
+async function readJsonBody(request, maximumBytes = 4096) {
+  const chunks = [];
+  let received = 0;
+  for await (const chunk of request) {
+    received += chunk.length;
+    if (received > maximumBytes) throw new Error("That local update is too large.");
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new Error("The local update could not be read.");
+  }
+}
+
+function manualSpeakerKey(label) {
+  return `manual-${createHash("sha256").update(label.toLocaleLowerCase()).digest("hex").slice(0, 12)}`;
+}
+
+async function renameJobSpeaker(job, speakerKey, nextName) {
+  const label = safeSpeakerLabel(nextName);
+  if (!label) throw new Error("Enter a speaker label before saving.");
+  const matchingSegments = (job.segments || []).filter((segment) => segment.speakerKey === speakerKey);
+  if (!matchingSegments.length) throw new Error("That speaker label is not available in this local transcript.");
+  matchingSegments.forEach((segment) => { segment.speaker = label; });
+  await refreshTranscriptExports(job);
+}
+
+async function assignSegmentSpeaker(job, segmentId, nextName) {
+  const label = safeSpeakerLabel(nextName);
+  if (!label) throw new Error("Enter a speaker label before saving.");
+  const segment = (job.segments || []).find((candidate) => candidate.id === segmentId);
+  if (!segment) throw new Error("That transcript segment is no longer available.");
+  segment.speaker = label;
+  segment.speakerKey = manualSpeakerKey(label);
+  await refreshTranscriptExports(job);
 }
 
 async function copyPackageFile(sourcePath, destinationPath) {
@@ -911,14 +1130,33 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, await engineHealth());
   }
   if (request.method === "GET" && url.pathname === "/api/jobs") {
-    return sendJson(response, 200, { jobs: [...jobs.values()].map(publicJob).sort((a, b) => b.createdAt.localeCompare(a.createdAt)) });
+    return sendJson(response, 200, { cases: [...cases.values()], jobs: [...jobs.values()].map(publicJob).sort((a, b) => b.createdAt.localeCompare(a.createdAt)) });
+  }
+  if (segments[1] === "cases" && ["POST", "PATCH"].includes(request.method) && segments.length === (request.method === "POST" ? 2 : 3)) {
+    let name;
+    try { name = caseName((await readJsonBody(request)).name); }
+    catch (error) { return sendError(response, 400, error.message); }
+    const existing = [...cases.values()].find((item) => item.name.toLowerCase() === name.toLowerCase() && item.id !== segments[2]);
+    if (existing) return sendError(response, 409, "A case with that name already exists. Choose it from the case list.");
+    const item = request.method === "POST" ? { id: `case-${randomUUID()}`, name } : cases.get(segments[2]);
+    if (!item) return sendError(response, 404, "Case not found.");
+    const affected = [...jobs.values()].filter((job) => job.projectId === item.id);
+    if (affected.some((job) => ["uploading", "queued", "processing"].includes(job.state))) return sendError(response, 409, "Wait for this case's queue to finish before renaming it.");
+    item.name = name;
+    cases.set(item.id, item);
+    for (const job of jobs.values()) if (job.projectId === item.id) job.projectName = name;
+    for (const job of affected) if (job.state === "completed") await refreshTranscriptExports(job);
+    await saveCatalog();
+    return sendJson(response, 200, { case: item });
   }
   if (request.method === "POST" && url.pathname === "/api/jobs") {
     const suppliedName = safeFileName(request.headers["x-file-name"]);
     const extension = path.extname(suppliedName).toLowerCase();
     const modelId = config.defaultModel;
     const language = "auto";
-    const project = projectFromHeader(request.headers["x-project-name"]);
+    const requestedCase = request.headers["x-case-id"];
+    const project = requestedCase ? cases.get(requestedCase) : projectFromHeader(request.headers["x-project-name"]);
+    if (!project) return sendError(response, 404, "The selected case no longer exists.");
     if (!allowedExtensions.has(extension)) return sendError(response, 415, "Choose a supported audio/video container. CID EchoTrace supports common audio evidence formats such as MP3, WAV, M4A, AMR, Opus, WMA, FLAC, OGG, MKV, and MP4.");
     if (!config.models[modelId]) return sendError(response, 500, "The included Whisper model is unavailable. Reinstall CID EchoTrace Local.");
 
@@ -947,12 +1185,15 @@ async function handleApi(request, response, url) {
       job.state = "queued";
       job.stage = "Waiting for the local engine";
       job.progress = 10;
+      cases.set(project.id, project);
+      await saveCatalog();
       pendingJobIds.push(id);
       void processNextJob();
       return sendJson(response, 202, { job: publicJob(job) });
     } catch (error) {
       jobs.delete(id);
       await removeIfPresent(job.sourcePath);
+      await saveCatalog();
       return sendError(response, 413, String(error.message || error));
     }
   }
@@ -1000,9 +1241,81 @@ async function handleApi(request, response, url) {
     const job = jobs.get(segments[2]);
     if (!job) return sendError(response, 404, "This local transcription session no longer exists.");
     if (request.method === "GET" && segments.length === 3) return sendJson(response, 200, { job: publicJob(job) });
+    if (request.method === "POST" && segments.length === 4 && segments[3] === "retry") {
+      if (job.state !== "failed") return sendError(response, 409, "Only a recording that needs attention can be retried.");
+      try { await fsp.access(job.sourcePath); }
+      catch { return sendError(response, 409, "The local source copy is unavailable. Add the original recording again."); }
+      if (job.state !== "failed") return sendError(response, 409, "This recording is already queued for retry.");
+      job.state = "queued";
+      job.stage = "Waiting to retry with the local engine";
+      job.progress = 10;
+      job.error = null;
+      await saveCatalog();
+      pendingJobIds.push(job.id);
+      void processNextJob();
+      return sendJson(response, 202, { job: publicJob(job) });
+    }
+    if (request.method === "PATCH" && segments.length === 4 && segments[3] === "transcript") {
+      if (job.state !== "completed") return sendError(response, 409, "Wait for transcription to finish before editing.");
+      let edits;
+      try {
+        edits = (await readJsonBody(request, 4 * 1024 * 1024)).edits;
+        const validIds = new Set(job.segments?.length ? job.segments.map((segment) => segment.id) : ["full"]);
+        if (!edits || typeof edits !== "object" || Array.isArray(edits) || !Object.keys(edits).length || Object.entries(edits).some(([id, text]) => !validIds.has(id) || typeof text !== "string")) throw new Error("Invalid transcript corrections.");
+      } catch (error) { return sendError(response, 400, error.message); }
+      const previous = { transcript: job.transcript, segments: JSON.parse(JSON.stringify(job.segments || [])) };
+      job.originalTranscript ??= previous.transcript;
+      job.originalSegments ??= previous.segments;
+      if (job.segments?.length) job.segments = job.segments.map((segment) => ({ ...segment, text: edits[segment.id] ?? segment.text }));
+      else job.transcript = edits.full;
+      try {
+        await refreshTranscriptExports(job);
+        if (!job.segments?.length && job.outputFiles.txtPath) await fsp.writeFile(job.outputFiles.txtPath, job.transcript, "utf8");
+        await saveCatalog();
+      } catch (error) {
+        Object.assign(job, previous);
+        await refreshTranscriptExports(job).catch(() => {});
+        throw error;
+      }
+      return sendJson(response, 200, { job: publicJob(job) });
+    }
+    if (request.method === "PATCH" && segments.length === 4 && segments[3] === "case") {
+      if (["processing", "uploading", "queued"].includes(job.state)) return sendError(response, 409, "Wait for processing to finish before moving this file.");
+      const payload = await readJsonBody(request);
+      const target = cases.get(payload.caseId);
+      if (!target) return sendError(response, 404, "Destination case not found.");
+      job.projectId = target.id;
+      job.projectName = target.name;
+      if (job.state === "completed") await refreshTranscriptExports(job);
+      await saveCatalog();
+      return sendJson(response, 200, { job: publicJob(job) });
+    }
+    if (request.method === "PATCH" && segments.length === 5 && segments[3] === "speakers") {
+      if (job.state !== "completed") return sendError(response, 409, "Wait for the local transcription to finish before labeling speakers.");
+      try {
+        const payload = await readJsonBody(request);
+        await renameJobSpeaker(job, segments[4], payload?.name);
+        await saveCatalog();
+        return sendJson(response, 200, { job: publicJob(job) });
+      } catch (error) {
+        return sendError(response, 400, String(error.message || error));
+      }
+    }
+    if (request.method === "PATCH" && segments.length === 6 && segments[3] === "segments" && segments[5] === "speaker") {
+      if (job.state !== "completed") return sendError(response, 409, "Wait for the local transcription to finish before labeling speakers.");
+      try {
+        const payload = await readJsonBody(request);
+        await assignSegmentSpeaker(job, segments[4], payload?.name);
+        await saveCatalog();
+        return sendJson(response, 200, { job: publicJob(job) });
+      } catch (error) {
+        return sendError(response, 400, String(error.message || error));
+      }
+    }
     if (request.method === "DELETE" && segments.length === 3) {
       if (job.state === "processing" || job.state === "uploading") return sendError(response, 409, "Wait for the active job to finish before clearing it.");
       jobs.delete(job.id);
+      await saveCatalog();
       const queuedIndex = pendingJobIds.indexOf(job.id);
       if (queuedIndex >= 0) pendingJobIds.splice(queuedIndex, 1);
       await Promise.all([removeIfPresent(job.sourcePath), removeIfPresent(job.playbackPath), ...Object.values(job.outputFiles || {}).filter(Boolean).map(removeIfPresent), ...(job.internalFiles || []).filter(Boolean).map(removeIfPresent)]);
@@ -1049,6 +1362,7 @@ async function serveStatic(response, pathname) {
 
 export async function startServer({ port } = {}) {
   await Promise.all([loadConfig(), fsp.mkdir(incomingDir, { recursive: true }), fsp.mkdir(workspaceDir, { recursive: true }), fsp.mkdir(exportsDir, { recursive: true }), fsp.mkdir(playbackDir, { recursive: true }), fsp.mkdir(projectsDir, { recursive: true }), fsp.mkdir(projectPortfoliosDir, { recursive: true })]);
+  await loadCatalog();
   const server = http.createServer((request, response) => {
     const url = new URL(request.url, `http://${request.headers.host || "127.0.0.1"}`);
     if (url.pathname.startsWith("/api/")) {

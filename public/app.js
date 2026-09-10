@@ -1,5 +1,8 @@
 const state = {
   jobs: [],
+  cases: [],
+  editingCaseId: null,
+  transcriptDrafts: new Map(),
   selectedJobId: null,
   health: null,
   includedModelId: "fast",
@@ -164,40 +167,45 @@ async function loadHealth() {
     if (ready.length && engineReady) {
       state.includedModelId = ready.find((model) => model.id === health.defaultModel)?.id || ready[0].id;
       elements.engineCard.className = "engine-card ready";
+      elements.engineCard.querySelector("strong").textContent = "Local engine ready";
       elements.engineMessage.textContent = `The included Whisper model is ready.${gpuMessage}${health.engine?.vad?.ready ? " Local speech detection is included." : ""}${icmvReady ? " ICMV WAV decoding is included." : ""} Nothing is sent online.`;
     } else if (!engineReady) {
       elements.engineCard.className = "engine-card warning";
+      elements.engineCard.querySelector("strong").textContent = "Runtime needs attention";
       elements.engineMessage.textContent = "The included transcription runtime could not be found. Reinstall CID EchoTrace Local.";
     } else {
       elements.engineCard.className = "engine-card warning";
+      elements.engineCard.querySelector("strong").textContent = "Model unavailable";
       elements.engineMessage.textContent = "The included Whisper model could not be found. Reinstall CID EchoTrace Local.";
     }
   } catch (error) {
     elements.engineCard.className = "engine-card warning";
+    elements.engineCard.querySelector("strong").textContent = "Local service unavailable";
     elements.engineMessage.textContent = "The local service is unavailable. Start it with npm start, then refresh this page.";
   }
 }
 
 async function loadJobs() {
   try {
-    const { jobs } = await request("/api/jobs");
+    const { jobs, cases = [] } = await request("/api/jobs");
+    state.cases = cases;
     state.jobs = jobs;
     if (state.selectedJobId && !jobs.some((job) => job.id === state.selectedJobId)) state.selectedJobId = null;
     renderJobs();
     renderProjectNav();
     renderProcessingStatus();
     renderLibrary();
-    renderTranscript();
+    if (!elements.transcriptBody.contains(document.activeElement)) renderTranscript();
     renderGlobalSearch();
     setPolling(Boolean(jobs.find((job) => ["uploading", "queued", "processing"].includes(job.state))));
   } catch (error) {
-    console.warn(error);
+    showToast(`Unable to refresh case files: ${error.message}`, "error");
   }
 }
 
 function stateLabel(job) {
   if (job.state === "completed") return "Ready";
-  if (job.state === "failed") return "Issue";
+  if (job.state === "failed") return "Needs attention";
   if (job.state === "uploading") return "Adding";
   if (job.state === "queued") return "Queued";
   return "Processing";
@@ -241,8 +249,8 @@ function renderProcessingStatus() {
 }
 
 function renderJobs() {
-  const jobs = state.jobs;
-  elements.navJobCount.textContent = jobs.length;
+  const jobs = state.jobs.filter((job) => job.state !== "completed");
+  elements.navJobCount.textContent = state.jobs.length;
   elements.railQueueCount.textContent = jobs.length;
   elements.railQueueEmpty.hidden = Boolean(jobs.length);
   elements.railJobList.hidden = !jobs.length;
@@ -263,13 +271,13 @@ function renderJobs() {
 }
 
 function projectGroupsFor(jobs = state.jobs) {
-  const groups = new Map();
+  const groups = new Map(state.cases.map((item) => [item.id, { ...item, jobs: [] }]));
   for (const job of jobs) {
     const projectId = job.projectId || "legacy-project";
     if (!groups.has(projectId)) groups.set(projectId, { id: projectId, name: job.projectName || "Ungrouped files", jobs: [] });
     groups.get(projectId).jobs.push(job);
   }
-  return [...groups.values()].sort((left, right) => left.name.localeCompare(right.name));
+  return [...groups.values()].filter((item) => jobs === state.jobs || item.jobs.length).sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function folderIcon() {
@@ -277,22 +285,43 @@ function folderIcon() {
 }
 
 function renderProjectNav() {
-  const projects = projectGroupsFor();
-  elements.projectNav.hidden = !projects.length;
+  const currentCase = elements.projectName.value;
+  elements.projectName.innerHTML = `<option value="">Unfiled recordings</option>${state.cases.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join("")}`;
+  elements.projectName.value = currentCase;
+  const query = document.querySelector("#caseSearch").value.trim().toLowerCase();
+  const status = document.querySelector("#caseStatus").value;
+  const projects = projectGroupsFor().map((item) => ({ ...item, allJobs: item.jobs, jobs: item.jobs.filter((job) => (status === "all" || (status === "active" ? ["uploading", "queued", "processing"].includes(job.state) : job.state === status)) && (!query || item.name.toLowerCase().includes(query) || job.name.toLowerCase().includes(query))) })).filter((item) => item.jobs.length || (status === "all" && (!query || item.name.toLowerCase().includes(query))));
+  elements.projectNav.hidden = false;
+  renderFileActions();
   if (!projects.length) {
-    elements.projectNav.innerHTML = "";
+    state.projectNavMarkup = null;
+    elements.projectNav.innerHTML = `<p class="rail-empty">${state.cases.length ? "No matching cases or recordings." : "Start with New case, or add unfiled recordings."}</p>`;
     return;
   }
-  elements.projectNav.innerHTML = `<p class="project-nav-label">PROJECT FOLDERS</p>${projects.map((project) => {
-    const expanded = state.expandedProjectIds.has(project.id);
+  const markup = `${projects.map((project) => {
+    const expanded = Boolean(query) || state.expandedProjectIds.has(project.id);
     return `<section class="project-folder ${state.libraryProjectId === project.id ? "active" : ""}">
       <div class="project-folder-header">
         <button class="project-folder-toggle" type="button" data-project-toggle="${escapeHtml(project.id)}" aria-expanded="${expanded}" title="Show files in ${escapeHtml(project.name)}">${folderIcon()}<span>${escapeHtml(project.name)}</span><em>${project.jobs.length}</em><i aria-hidden="true"></i></button>
         <button class="project-folder-open" type="button" data-project-nav-id="${escapeHtml(project.id)}" title="Open ${escapeHtml(project.name)} in the library">View</button>
       </div>
-      <div class="project-file-list" ${expanded ? "" : "hidden"}>${project.jobs.map((job) => `<button class="project-file-item ${job.id === state.selectedJobId ? "selected" : ""}" type="button" data-project-nav-job-id="${job.id}" title="${escapeHtml(job.name)}"><span>${escapeHtml(job.name)}</span><em>${escapeHtml(stateLabel(job))}</em></button>`).join("")}</div>
+      <div ${expanded ? "" : "hidden"}>
+      <div class="case-actions" data-case-id="${escapeHtml(project.id)}"><button type="button" data-case-action="add">Add files</button><button type="button" data-case-action="rename">Rename</button><button type="button" data-case-action="portfolio" title="Export every completed transcript in this case" ${project.allJobs.some((job) => job.state === "completed") ? "" : "disabled"}>PDF portfolio</button><button type="button" data-case-action="package" title="Package all recordings and available exports in this case" ${project.allJobs.length ? "" : "disabled"}>Package case</button></div>
+      <div class="project-file-list">${project.jobs.map((job) => `<button class="project-file-item ${job.id === state.selectedJobId ? "selected" : ""}" type="button" data-project-nav-job-id="${job.id}" title="${escapeHtml(job.name)}"><span>${escapeHtml(job.name)}</span><em>${escapeHtml(stateLabel(job))}</em></button>`).join("") || '<p class="rail-empty">No files yet. Add recordings to this case.</p>'}</div></div>
     </section>`;
   }).join("")}`;
+  if (state.projectNavMarkup !== markup) { elements.projectNav.innerHTML = markup; state.projectNavMarkup = markup; }
+}
+
+function renderFileActions() {
+  const panel = document.querySelector("#fileActions");
+  const job = state.jobs.find((item) => item.id === state.selectedJobId);
+  panel.hidden = !job;
+  if (!job) return;
+  const busy = ["uploading", "queued", "processing"].includes(job.state);
+  const markup = `<p class="section-kicker">Selected recording</p><h3>${escapeHtml(job.name)}</h3><p>${escapeHtml(job.projectName)} · ${escapeHtml(stateLabel(job))}</p><p>${escapeHtml(job.error || job.stage || "")}</p><div class="case-actions">${job.state === "completed" ? `<button type="button" data-file-action="open">Review</button>${job.mediaAvailable ? '<button type="button" data-file-action="play">Play audio</button>' : ""}${job.exports.map((format) => `<a href="/api/jobs/${job.id}/export?format=${format}" download>${format.toUpperCase()}</a>`).join("")}` : ""}</div><label class="rail-field" for="moveCase">Move recording to<select id="moveCase" ${busy ? "disabled" : ""}>${state.cases.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === job.projectId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}</select></label><button type="button" data-file-action="move" ${busy ? "disabled" : ""}>Move file</button><p class="rail-hint">${busy ? "Moving is available when processing finishes." : "Moving changes case membership. The source filename stays intact."}</p>`;
+  const fullMarkup = markup + `<div class="case-actions">${job.state === "failed" ? '<button type="button" data-file-action="retry">Retry transcription</button>' : ""}${!busy ? '<button type="button" data-file-action="remove">Remove local copy</button>' : ""}</div>`;
+  if (state.fileActionsMarkup !== fullMarkup && !panel.contains(document.activeElement)) { panel.innerHTML = fullMarkup; state.fileActionsMarkup = fullMarkup; }
 }
 
 function renderLibrary() {
@@ -343,8 +372,32 @@ function durationLabel(job) {
   return minutes ? `${minutes} min ${String(seconds % 60).padStart(2, "0")} sec` : `${seconds} sec`;
 }
 
-function wordCount(text) {
+function wordCount(job) {
+  const text = job.segments?.length ? job.segments.map((segment) => segment.text || "").join(" ") : job.transcript;
   return text.trim() ? text.trim().split(/\s+/).length : 0;
+}
+
+function speakerSummary(job) {
+  const labeled = (job.segments || []).filter((segment) => segment.speaker).length;
+  if (job.diarization?.mode === "stereo-channel") {
+    const count = Number(job.diarization.speakerCount) || 0;
+    return `<span class="summary-chip speaker-summary"><strong>${count || 2} speaker${count === 1 ? "" : "s"}</strong> · separated stereo channels</span>`;
+  }
+  if (labeled) {
+    const count = new Set(job.segments.map((segment) => segment.speakerKey).filter(Boolean)).size;
+    return `<span class="summary-chip speaker-summary"><strong>${count} local speaker label${count === 1 ? "" : "s"}</strong></span>`;
+  }
+  return `<span class="summary-chip speaker-summary">Mono source · <strong>assign speaker tags</strong></span>`;
+}
+
+function speakerTag(segment) {
+  const id = escapeHtml(segment.id);
+  if (!segment.speaker) {
+    return `<button class="speaker-tag unassigned" type="button" data-assign-speaker-segment="${id}" title="Assign a local speaker label to this segment">Assign speaker</button>`;
+  }
+  const speakerKey = escapeHtml(segment.speakerKey || "manual");
+  const channelClass = segment.speakerKey === "channel-0" ? "channel-a" : segment.speakerKey === "channel-1" ? "channel-b" : segment.speakerKey === "channel-mixed" ? "overlap" : "manual";
+  return `<button class="speaker-tag ${channelClass}" type="button" data-rename-speaker-key="${speakerKey}" title="Rename this speaker throughout the local transcript">${escapeHtml(segment.speaker)}</button>`;
 }
 
 function highlight(text, query) {
@@ -494,9 +547,13 @@ function renderTranscript() {
     return;
   }
   if (state.view !== "workspace") return;
+  const draft = state.transcriptDrafts.get(job.id);
+  document.querySelector("#saveTranscriptButton").disabled = !draft;
+  document.querySelector("#transcriptSaveStatus").textContent = draft ? "Unsaved corrections — saved when you select Save corrections. Exports still contain the last saved text." : "Machine-generated transcript. Verify wording and speaker labels against the audio.";
+  document.querySelector("#caseBreadcrumb").textContent = `Case workspace / ${job.projectName || "Unfiled recordings"}`;
   elements.pageTitle.textContent = titleFromFile(job.name);
   elements.transcriptTitle.textContent = titleFromFile(job.name);
-  elements.transcriptSummary.innerHTML = `<span class="summary-chip"><strong>${wordCount(job.transcript)}</strong> words</span><span class="summary-chip">${durationLabel(job)}</span><span class="summary-chip">${escapeHtml(job.modelLabel)}</span>${["txt", "srt", "pdf"].map((format) => `<a class="export-button" href="/api/jobs/${job.id}/export?format=${format}" download>Export ${format.toUpperCase()}</a>`).join("")}`;
+  elements.transcriptSummary.innerHTML = `<span class="summary-chip"><strong>${wordCount(job)}</strong> words</span><span class="summary-chip">${durationLabel(job)}</span>${speakerSummary(job)}<span class="summary-chip">${escapeHtml(job.modelLabel)}</span>${["txt", "srt", "pdf"].map((format) => `<a class="export-button" href="/api/jobs/${job.id}/export?format=${format}" download>Export ${format.toUpperCase()}</a>`).join("")}`;
   elements.audioReview.hidden = !job.mediaAvailable;
   if (job.mediaAvailable) configurePlaybackPlayer(job);
   else resetPlaybackPlayer();
@@ -509,7 +566,7 @@ function renderTranscript() {
     const timestamp = hasTimestamp
       ? `<button class="timestamp" type="button" data-seek-ms="${segment.startMs}" aria-label="Play from ${escapeHtml(segment.start)}">${escapeHtml(segment.start)}</button>`
       : `<time class="timestamp">${escapeHtml(segment.start || "Transcript")}</time>`;
-    return `<article class="transcript-line" data-segment-row="${escapeHtml(segment.id)}">${timestamp}<div class="segment-text" contenteditable="true" spellcheck="true" data-segment="${escapeHtml(segment.id)}">${highlight(segment.text, query)}</div></article>`;
+    return `<article class="transcript-line" data-segment-row="${escapeHtml(segment.id)}">${timestamp}${speakerTag(segment)}<div class="segment-text" contenteditable="plaintext-only" role="textbox" aria-label="Transcript segment ${escapeHtml(segment.start || "text")}" spellcheck="true" data-segment="${escapeHtml(segment.id)}">${highlight(draft?.[segment.id] ?? segment.text, query)}</div></article>`;
   }).join("");
   updateSearchMatches();
   state.activeSegmentId = null;
@@ -525,7 +582,7 @@ function setView(view, updateHash = true) {
   elements.navLinks.forEach((link) => link.classList.toggle("active", link.dataset.view === nextView));
   if (nextView === "library") {
     elements.audioPlayer.pause();
-    elements.pageTitle.textContent = "Local library";
+    elements.pageTitle.textContent = state.cases.find((item) => item.id === state.libraryProjectId)?.name || "All case files";
     renderLibrary();
   } else {
     renderTranscript();
@@ -552,17 +609,31 @@ function setPolling(active) {
   }
 }
 
+function formatStorageBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return "unknown size";
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KiB`;
+  if (bytes < 1024 ** 3) return `${(bytes / (1024 ** 2)).toFixed(1)} MiB`;
+  return `${(bytes / (1024 ** 3)).toFixed(1)} GiB`;
+}
+
 async function uploadFiles(files) {
+  if (elements.browseButton.disabled) return showToast("A batch is already being added. Wait for it to finish.");
   const selectedFiles = [...(files || [])];
   if (!selectedFiles.length) return;
+  const intakeCaseId = elements.projectName.value;
   const readyModels = state.health?.models?.filter((model) => model.ready) || [];
   if (!readyModels.length) {
     showToast("The included Whisper model is not ready. Reinstall CID EchoTrace Local.", "error");
     elements.settingsButton.click();
     return;
   }
-  const oversized = selectedFiles.find((file) => file.size > state.health.maxUploadBytes);
-  if (oversized) return showToast(`${oversized.name} is larger than this workspace's configured limit.`, "error");
+  const maximumBytes = Number(state.health?.maxUploadBytes);
+  const oversized = Number.isSafeInteger(maximumBytes) && maximumBytes > 0
+    ? selectedFiles.find((file) => file.size > maximumBytes)
+    : null;
+  if (oversized) return showToast(`${oversized.name} is ${formatStorageBytes(oversized.size)}. CID EchoTrace accepts local files up to ${formatStorageBytes(maximumBytes)}.`, "error");
   elements.dropCard.classList.remove("dragging");
   elements.browseButton.disabled = true;
   let added = 0;
@@ -570,6 +641,7 @@ async function uploadFiles(files) {
   try {
     for (const [index, file] of selectedFiles.entries()) {
       elements.browseButton.textContent = selectedFiles.length === 1 ? "Adding locally…" : `Adding ${index + 1} of ${selectedFiles.length}…`;
+      document.querySelector("#intakeStatus").textContent = `Adding ${index + 1} of ${selectedFiles.length}: ${file.name}`;
       try {
         const result = await request("/api/jobs", {
           method: "POST",
@@ -577,12 +649,14 @@ async function uploadFiles(files) {
             "Content-Type": file.type || "application/octet-stream",
             "X-File-Name": encodeURIComponent(file.name),
             "X-Model-Id": state.includedModelId,
-            "X-Project-Name": encodeURIComponent(elements.projectName.value.trim() || "Untitled project")
+            "X-Project-Name": "Unfiled recordings",
+            ...(intakeCaseId ? { "X-Case-Id": intakeCaseId } : {})
           },
           body: file
         });
         state.jobs.unshift(result.job);
         state.selectedJobId = result.job.id;
+        state.expandedProjectIds.add(result.job.projectId);
         added += 1;
         renderJobs();
         renderProjectNav();
@@ -602,20 +676,68 @@ async function uploadFiles(files) {
     elements.browseButton.disabled = false;
     elements.browseButton.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0-11-4 4m4-4 4 4M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" /></svg> Choose a file`;
     elements.fileInput.value = "";
+    document.querySelector("#intakeStatus").textContent = `${added} added · ${failed.length} failed${failed.length ? `: ${failed.join("; ")}` : ""}`;
     await loadJobs();
   }
 }
 
 async function clearJob(id) {
   const job = state.jobs.find((candidate) => candidate.id === id);
-  if (!job || !window.confirm(`Clear ${job.name} and its locally generated exports and review audio?`)) return;
+  if (!job || !window.confirm(`Remove ${job.name} from this app? This deletes its imported local media copy, transcript, exports, and review audio. Your original file outside this app and previously created case packages remain intact.`)) return;
   try {
     await request(`/api/jobs/${id}`, { method: "DELETE" });
     if (state.selectedJobId === id) state.selectedJobId = null;
     await loadJobs();
-    showToast("The local transcript, exports, and review audio were cleared.");
+    state.transcriptDrafts.delete(id);
+    showToast("The imported local media copy, transcript, exports, and review audio were removed.");
   } catch (error) {
     showToast(error.message, "error");
+  }
+}
+
+function applyUpdatedJob(updated) {
+  state.jobs = state.jobs.map((job) => job.id === updated.id ? updated : job);
+  renderJobs();
+  renderProjectNav();
+  renderLibrary();
+  renderTranscript();
+  renderGlobalSearch();
+}
+
+async function renameSpeaker(speakerKey) {
+  const job = selectedCompletedJob();
+  const segment = job?.segments?.find((candidate) => candidate.speakerKey === speakerKey);
+  if (!job || !segment) return;
+  const nextName = window.prompt(`Rename ${segment.speaker} everywhere in this local transcript:`, segment.speaker);
+  if (nextName === null) return;
+  try {
+    const result = await request(`/api/jobs/${encodeURIComponent(job.id)}/speakers/${encodeURIComponent(speakerKey)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: nextName })
+    });
+    applyUpdatedJob(result.job);
+    showToast("Speaker label updated in the transcript and local exports.");
+  } catch (error) {
+    showToast(error.message || "That speaker label could not be updated.", "error");
+  }
+}
+
+async function assignSpeakerToSegment(segmentId) {
+  const job = selectedCompletedJob();
+  if (!job) return;
+  const nextName = window.prompt("Label this transcript segment (for example: Investigator, Caller, Speaker 1):", "Speaker 1");
+  if (nextName === null) return;
+  try {
+    const result = await request(`/api/jobs/${encodeURIComponent(job.id)}/segments/${encodeURIComponent(segmentId)}/speaker`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: nextName })
+    });
+    applyUpdatedJob(result.job);
+    showToast("Speaker label added to this segment and local exports.");
+  } catch (error) {
+    showToast(error.message || "That speaker label could not be added.", "error");
   }
 }
 
@@ -652,6 +774,12 @@ async function exportProjectPortfolio(projectId) {
 function showModal() { elements.modalBackdrop.hidden = false; elements.modalClose.focus(); }
 function closeModal() { elements.modalBackdrop.hidden = true; }
 function isDesktopApp() { return Boolean(window.echoTraceDesktop); }
+const openDataButton = document.querySelector("#openDataButton");
+openDataButton.hidden = !window.echoTraceDesktop?.openDataDirectory;
+openDataButton.addEventListener("click", async () => {
+  try { const error = await window.echoTraceDesktop.openDataDirectory(); if (error) throw new Error(error); }
+  catch (error) { showToast(`Unable to open the data folder: ${error.message}`, "error"); }
+});
 
 elements.browseButton.addEventListener("click", () => elements.fileInput.click());
 elements.fileInput.addEventListener("change", () => uploadFiles(elements.fileInput.files));
@@ -675,9 +803,42 @@ elements.libraryList.addEventListener("click", (event) => {
 });
 elements.transcriptBody.addEventListener("click", (event) => {
   const timestamp = event.target.closest("button[data-seek-ms]");
-  if (!timestamp) return;
-  void playFrom(Number(timestamp.dataset.seekMs));
+  if (timestamp) {
+    void playFrom(Number(timestamp.dataset.seekMs));
+    return;
+  }
+  const rename = event.target.closest("button[data-rename-speaker-key]");
+  if (rename) {
+    void renameSpeaker(rename.dataset.renameSpeakerKey);
+    return;
+  }
+  const assign = event.target.closest("button[data-assign-speaker-segment]");
+  if (assign) void assignSpeakerToSegment(assign.dataset.assignSpeakerSegment);
 });
+elements.transcriptBody.addEventListener("input", (event) => {
+  const target = event.target.closest("[data-segment]");
+  if (!target || !state.selectedJobId) return;
+  const draft = state.transcriptDrafts.get(state.selectedJobId) || {};
+  draft[target.dataset.segment] = target.innerText;
+  state.transcriptDrafts.set(state.selectedJobId, draft);
+  document.querySelector("#saveTranscriptButton").disabled = false;
+  document.querySelector("#transcriptSaveStatus").textContent = "Unsaved corrections — select Save corrections to update the transcript and exports.";
+});
+document.querySelector("#saveTranscriptButton").addEventListener("click", async (event) => {
+  const id = state.selectedJobId;
+  const edits = state.transcriptDrafts.get(id);
+  if (!edits) return;
+  event.target.disabled = true;
+  elements.transcriptBody.querySelectorAll("[contenteditable]").forEach((node) => { node.contentEditable = "false"; });
+  try {
+    const result = await request(`/api/jobs/${id}/transcript`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ edits }) });
+    state.transcriptDrafts.delete(id);
+    applyUpdatedJob(result.job);
+    showToast("Corrections saved. Individual transcript exports updated; re-export any existing case package or portfolio.");
+  } catch (error) { event.target.disabled = false; showToast(error.message, "error"); }
+  finally { renderTranscript(); }
+});
+window.addEventListener("beforeunload", (event) => { if (state.transcriptDrafts.size) { event.preventDefault(); event.returnValue = ""; } });
 elements.globalSearch.addEventListener("input", renderGlobalSearch);
 elements.globalSearch.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
@@ -723,14 +884,36 @@ elements.copyButton.addEventListener("click", async () => {
 elements.navLinks.forEach((link) => link.addEventListener("click", (event) => {
   event.preventDefault();
   if (link.dataset.view === "library") state.libraryProjectId = null;
+  if (link.dataset.view === "workspace") state.selectedJobId = null;
   setView(link.dataset.view);
+  renderProjectNav();
 }));
 elements.projectNav.addEventListener("click", (event) => {
+  const action = event.target.closest("[data-case-action]");
+  if (action) {
+    const id = action.closest("[data-case-id]").dataset.caseId;
+    if (action.dataset.caseAction === "rename") openCaseForm(id);
+    if (action.dataset.caseAction === "add") {
+      elements.projectName.value = id;
+      state.selectedJobId = null;
+      setView("workspace");
+      renderProjectNav();
+      elements.fileInput.click();
+    }
+    if (["portfolio", "package"].includes(action.dataset.caseAction)) {
+      action.disabled = true;
+      const label = action.textContent;
+      action.textContent = "Preparing…";
+      void (action.dataset.caseAction === "portfolio" ? exportProjectPortfolio(id) : packageProject(id)).finally(() => { action.disabled = false; action.textContent = label; });
+    }
+    return;
+  }
   const folder = event.target.closest("button[data-project-toggle]");
   if (folder) {
     const projectId = folder.dataset.projectToggle;
     if (state.expandedProjectIds.has(projectId)) state.expandedProjectIds.delete(projectId);
     else state.expandedProjectIds.add(projectId);
+    elements.projectName.value = projectId;
     renderProjectNav();
     return;
   }
@@ -745,6 +928,58 @@ elements.projectNav.addEventListener("click", (event) => {
     setView("library");
     renderProjectNav();
     renderLibrary();
+  }
+});
+
+function openCaseForm(id = null) {
+  state.editingCaseId = id;
+  document.querySelector("#caseForm").hidden = false;
+  document.querySelector("#caseNameInput").value = state.cases.find((item) => item.id === id)?.name || "";
+  document.querySelector("#caseFormStatus").textContent = id ? "Rename this case. Its recordings stay together." : "Create a case before adding recordings.";
+  document.querySelector("#caseNameInput").focus();
+}
+document.querySelector("#newCaseButton").addEventListener("click", () => openCaseForm());
+document.querySelector("#cancelCaseButton").addEventListener("click", () => { document.querySelector("#caseForm").hidden = true; });
+document.querySelector("#caseForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.submitter;
+  button.disabled = true;
+  try {
+    const result = await request(state.editingCaseId ? `/api/cases/${state.editingCaseId}` : "/api/cases", { method: state.editingCaseId ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: document.querySelector("#caseNameInput").value }) });
+    state.expandedProjectIds.add(result.case.id);
+    await loadJobs();
+    elements.projectName.value = result.case.id;
+    document.querySelector("#caseForm").hidden = true;
+    showToast(`Case saved: ${result.case.name}`);
+  } catch (error) { document.querySelector("#caseFormStatus").textContent = error.message; }
+  finally { button.disabled = false; }
+});
+document.querySelector("#caseSearch").addEventListener("input", renderProjectNav);
+document.querySelector("#caseStatus").addEventListener("change", renderProjectNav);
+document.querySelector("#fileActions").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-file-action]");
+  if (!button) return;
+  const id = state.selectedJobId;
+  if (button.dataset.fileAction === "open") return openTranscript(id);
+  if (button.dataset.fileAction === "play") return openTranscript(id, { play: true });
+  if (button.dataset.fileAction === "remove") return clearJob(id);
+  if (button.dataset.fileAction === "retry") {
+    button.disabled = true;
+    try { await request(`/api/jobs/${id}/retry`, { method: "POST" }); button.blur(); await loadJobs(); showToast("Recording queued again using its retained local source copy."); }
+    catch (error) { showToast(error.message, "error"); }
+    finally { button.disabled = false; }
+  }
+  if (button.dataset.fileAction === "move") {
+    button.disabled = true;
+    try {
+      const caseId = document.querySelector("#moveCase").value;
+      await request(`/api/jobs/${id}/case`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ caseId }) });
+      state.expandedProjectIds.add(caseId);
+      button.blur();
+      await loadJobs();
+      showToast("Recording moved. Case membership saved on this computer.");
+    } catch (error) { showToast(error.message, "error"); }
+    finally { button.disabled = false; }
   }
 });
 window.addEventListener("hashchange", () => setView(window.location.hash === "#library" ? "library" : "workspace", false));

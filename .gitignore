@@ -4,4 +4,6 @@ config.json
 node_modules/
 release/
 vendor/
+*.pfx
+*.p12
 .DS_Store

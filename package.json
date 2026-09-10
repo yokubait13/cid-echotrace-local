@@ -1,12 +1,13 @@
 {
   "name": "cid-echotrace-local",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
   "description": "A private, offline-first audio and video transcription workspace for CID case review.",
   "scripts": {
     "start": "node server.mjs",
+    "test": "node --test tests/case-workflow.test.mjs",
     "desktop": "electron .",
     "check": "node --check server.mjs && node --check public\\app.js && node --check electron\\main.cjs && node --check electron\\preload.cjs",
     "prepare:offline-runtime": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\\prepare-bundled-runtime.ps1",
@@ -27,6 +28,7 @@
       "electron/**/*",
       "server.mjs",
       "THIRD_PARTY_NOTICES.md",
+      "LICENSE",
       "package.json"
     ],
     "extraResources": [
@@ -36,7 +38,8 @@
       { "from": "vendor/runtime-manifest.json", "to": "runtime-manifest.json" }
     ],
     "win": {
-      "signAndEditExecutable": false,
+      "forceCodeSigning": true,
+      "signAndEditExecutable": true,
       "target": ["nsis", "portable"]
     },
     "nsis": {

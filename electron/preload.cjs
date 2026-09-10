@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("echoTraceDesktop", Object.freeze({
+  openDataDirectory: () => ipcRenderer.invoke("desktop:open-data-directory"),
   onShowHelp: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("show-help", listener);

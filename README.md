@@ -12,22 +12,31 @@ The installed Windows application deliberately has no analytics, cloud API calls
 - Broad local media compatibility through the bundled static FFmpeg decoder suite: MP1/MP2/MP3, WAV/RF64/W64, ICMV WAV, AAC/M4A/ALAC, AMR/AWB, GSM, Opus/Ogg/Speex, FLAC, APE, WMA, RealMedia, CAF, AIFF, DSF/DFF, DTS/AC-3/E-AC-3, and common MP4/MKV/AVI/MOV/3GP/MPEG/TS containers.
 - Batch upload intake: choose or drop multiple files, which are added to one local FIFO queue and transcribed strictly one at a time.
 - A right-side live processing panel with responsive decode/transcription progress, active engine, and queue status. The included model is fixed and language is detected automatically; there is no setup tab or model picker.
-- A widened, frozen left evidence rail that keeps the local queue, readable source filenames, and expandable project folders available while the workspace scrolls without a visible rail scrollbar.
+- A wider, independently scrolling left case rail with readable filenames, case and recording search, status filters, expandable case folders, and selected-recording actions. Compact desktop windows give the transcript more room by hiding the secondary right status panel.
 - Bundled `ffmpeg` audio preparation, Whisper Large v3 Turbo multilingual model, and `whisper.cpp` `whisper-cli` execution.
 - Bundled official `whisper.cpp` CUDA/cuBLAS runtime for automatic NVIDIA GPU transcription, plus a private CPU runtime fallback for PCs without a compatible NVIDIA GPU.
 - Included ICMV Audio Codec bridge for legacy ICMV-compressed RIFF/WAV recordings; it loads the supplied x86 ACM module privately and makes no system-wide codec installation or registry change.
-- Project management directly in the left rail: create empty project folders, drag a recording onto another project to move it, or use the accessible Move to control in the library. Selecting a completed filename expands its full transcript directly below that file instead of changing tabs.
-- A local library view for the active app session, grouped by project and shown as expandable project folders in the left rail. Each project can export one combined branded PDF portfolio of all completed transcripts, or be packaged into a local folder containing the original audio/video files, completed TXT/SRT/PDF exports, that PDF portfolio, and a manifest.
+- Case management directly in the left rail: create empty cases, rename cases, add recordings to a selected case, move finished or failed recordings using the explicit destination selector, retry failed recordings using their retained local source copy, and remove local copies with a confirmation that explains what is deleted. Selecting a completed filename opens its transcript in the central workspace. Cases with active jobs cannot be renamed, and active recordings cannot be moved.
+- Case and recording metadata persist in an atomically replaced local `data/case-catalog.json`. Cases, completed transcripts, corrections, and case membership are restored on restart. Interrupted jobs appear as needing attention and can be retried. This does not reconstruct metadata from sessions that ended before catalog persistence was introduced.
+- Each case can export a combined branded PDF portfolio or a local package containing imported audio/video, available TXT/SRT/PDF exports, a portfolio, and a manifest. These actions are available in the left rail and the library and apply to the whole case, regardless of the rail's current search/status filter. Existing packages are snapshots; re-export after corrections or case changes.
+- Transcript corrections have an explicit **Save corrections** action and visible unsaved status. Saving updates the local transcript and individual exports. The catalog retains the pre-correction transcript and segments; imported source media is unchanged. Draft corrections remain in the current browser session when switching recordings, and closing or reloading with unsaved drafts triggers a browser warning.
 - Branded PDF transcript exports generated locally, with the CID EchoTrace Local name and a vector EchoTrace mark embedded directly in the document, using the same field-olive, brass, and parchment palette as the application.
 - Synchronized local review playback: the active transcript segment is highlighted while audio plays, and each timestamp jumps directly to that point in the recording. Transcript search highlights every match, shows the current match count, and provides a Next control (or Enter) to move through each result.
-
+- Local speaker differentiation: true two-channel recordings retain their separate channels through preparation and use bundled `whisper.cpp` stereo diarization to label the dominant channel as **Speaker A** or **Speaker B**; overlapping/indeterminate audio is marked clearly. Mono recordings expose an **Assign speaker** tag on each segment for reviewer-applied local labels. Renaming or assigning a label refreshes individual TXT, SRT, and PDF exports. Re-export case portfolios and packages to include updated labels.
 
 ## Installed-app requirements
 
 1. Windows 10/11 x64.
 2. No account, network connection, model download, Node.js, Python, `ffmpeg`, `whisper-cli`, CUDA Toolkit, or ICMV codec installation is required after installing CID EchoTrace Local. The installed edition offers an installer-time choice to enable its bundled CUDA runtime; an NVIDIA display driver is all that option requires.
+3. The local intake supports individual source files up to **64 GiB**. Ensure that the Windows account's app-data drive has at least the source-file size plus 1 GiB free before importing. Use NTFS or exFAT for files above 4 GiB; FAT32 cannot hold them.
 
 The package includes an official CUDA/cuBLAS build of `whisper.cpp`, a CPU fallback build, one fixed **Whisper Large v3 Turbo multilingual** GGML model, a local Silero voice-activity model, a static FFmpeg binary, and an x86 helper plus the supplied `icmv.acm` module. When an NVIDIA GPU and driver are available and CUDA acceleration was enabled in the installer, CID EchoTrace automatically uses the CUDA engine. If a target PC has no compatible NVIDIA GPU, GPU acceleration was declined during installation, or the GPU runtime cannot initialize, it retries the same file once using the bundled CPU engine. The installed app presents no model picker and requires no runtime configuration.
+
+### Speaker labels and their limits
+
+For a true stereo/two-channel recording, CID EchoTrace preserves the two source channels while normalizing to 16 kHz PCM and enables the included `whisper.cpp` stereo-diarization mode. This assigns a segment to the channel with clearly higher energy: **Speaker A** for the first/left channel, **Speaker B** for the second/right channel, and **Overlapping / unclear** when neither channel dominates. These are channel labels—not a claim that a voice has been biometrically identified—and they are especially useful for dual-channel interview, call-capture, and recorder exports.
+
+For one-channel/mono recordings, the software does not guess a person's identity. Each timestamped line instead displays **Assign speaker**, which saves a reviewer-entered label in the local case catalog. Click a populated tag to rename that label throughout the transcript. Both paths update the individual TXT, SRT, and PDF exports. Create a new portfolio or case package to include the latest saved labels. No recording, embedding, or speaker label is sent to a service.
 
 ### Broad audio decoder coverage
 
@@ -39,7 +48,7 @@ The ICMV path has been verified to load the supplied decoder privately. A repres
 
 ## Development-only first run
 
-Running the source project directly is a developer workflow. It requires Node.js 16.14+, local `ffmpeg` and `whisper-cli` commands on `PATH`, and a local Whisper Large v3 Turbo model at `models/ggml-large-v3-turbo.bin`.
+Running the source project directly is a developer workflow. Use Node.js 18+ for the test suite. When the prepared `vendor/engine` and `vendor/models` directories are present, `npm start` uses them automatically. Otherwise, source development needs local `ffmpeg` and `whisper-cli` commands on `PATH` and a local Whisper Large v3 Turbo model at `models/ggml-large-v3-turbo.bin`.
 
 From this folder in PowerShell:
 
@@ -71,7 +80,31 @@ The build writes these distributables into `release/`:
 
 The application stores source media and generated exports under the current Windows user's app-data folder—not beside the installer and never within the read-only application archive. The bundled engine and model live inside the package and are selected automatically. The installed application does not create, read, or offer a model configuration file.
 
-The output executables are not code signed by this project. Sign the installer and portable executable with your own Windows code-signing certificate before distributing them beyond a controlled environment.
+### Signing a Windows release
+
+Release packaging is fail-closed: `npm run package:win` requires a Windows code-signing certificate and fails rather than producing an unsigned installer or portable executable. Use a code-signing certificate issued to the legal publisher that will distribute CID EchoTrace Local. A self-signed certificate is useful only for an internally managed test environment; it will not establish public Windows trust or remove SmartScreen warnings.
+
+Keep the certificate and its password outside the repository. The project ignores `.pfx` and `.p12` files. Before running the release build, make the certificate available only to the build environment:
+
+```powershell
+$env:WIN_CSC_LINK = 'C:\secure-build-assets\publisher-code-signing.pfx'
+$env:WIN_CSC_KEY_PASSWORD = '<certificate-password-from-your-secret-store>'
+npm run package:win
+Remove-Item Env:\WIN_CSC_LINK, Env:\WIN_CSC_KEY_PASSWORD
+```
+
+For CI, store the same values as protected, masked secrets rather than writing the certificate or password into `package.json`, a script, or the repository. Electron Builder then signs the application executables, the NSIS installer, and the portable executable and applies a timestamp so the signature remains valid after certificate expiry. With an EV certificate whose private key is held in a hardware token or cloud/HSM service, configure the signing provider or Windows certificate-store selection instead of exporting a `.pfx`.
+
+After each release build, verify both distributables before publishing:
+
+```powershell
+Get-ChildItem .\release\*.exe | ForEach-Object {
+  Get-AuthenticodeSignature -FilePath $_.FullName |
+    Select-Object Path, Status, StatusMessage, SignerCertificate, TimeStamperCertificate
+}
+```
+
+Both files must report `Status` as `Valid`, and the signer subject must match the intended publisher name.
 
 ## Privacy behavior
 
