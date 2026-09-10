@@ -33,4 +33,12 @@ The local interface was exercised with actual clicks and form input:
 
 The prepared FFmpeg, Whisper model, VAD model, ICMV bridge, and NVIDIA GPU runtime reported ready. A three-second generated tone was imported through the real API and processed on the NVIDIA GPU. It produced no readable speech text and appeared as Needs attention; retry used the retained source copy. The empty-output error now gives recovery guidance.
 
-The machine's speech synthesizer did not provide a usable voice, so this pass did not measure spoken-word transcription accuracy. Review/edit/export tests use a clearly labeled synthetic transcript fixture. No new Windows executable or installer was built or signed during this UI work; the existing release binaries do not contain these source changes.
+The machine's speech synthesizer did not provide a usable voice, so this pass did not measure spoken-word transcription accuracy. Review/edit/export tests use a clearly labeled synthetic transcript fixture.
+
+## Windows release v0.10.0
+
+The NSIS installer and portable x64 executable were built with Electron 28.3.3 and the prepared offline runtime. Both report Authenticode `NotSigned`; a one-time unsigned command override was used without changing the repository's normal signing requirement.
+
+The packaged `app.asar` reports version 0.10.0. The server, renderer JS/CSS/HTML, Electron host/preload, and LICENSE match the source files byte for byte. The packaged application started successfully with an isolated temporary profile, reported the bundled engine/model/GPU/VAD/ICMV components ready, and saved a case created through the browser interface. The actual portable executable then extracted, started with that same temporary profile, restored the saved case, and reported its local runtime ready. No user case data was used.
+
+SHA-256 checksums are supplied with the release as `SHA256SUMS.txt`. The installer was built and hashed; an installation/uninstallation cycle was not performed.

@@ -30,3 +30,12 @@ This release makes the left rail the main place to organize recordings for legal
 ## Validation
 
 The automated workflow covers case creation, duplicate/invalid names, moves, saved corrections, TXT/SRT/PDF exports, portfolio/package generation, restart recovery, retry, and preservation of the synthetic source-file hash. Browser checks cover the case controls, correction saving, filters, and compact desktop layouts. A generated non-speech tone exercised the bundled NVIDIA processing and retry paths; spoken-word accuracy was not measured in this pass.
+
+The packaged application and actual portable executable were launched with an isolated temporary profile. Case creation and saved-case recovery passed, and the bundled runtime reported ready. Packaged application files were checked against the matching source. The installer was built and hashed; an installation/uninstallation cycle was not performed.
+
+## SHA-256
+
+| Download | SHA-256 |
+| --- | --- |
+| Portable x64 | `e72189b6880287855b04846e37b275b1fe2de7764eaadb59d093bf7725350899` |
+| Setup x64 | `8cd7bc479d5a7d442588e8ef10cc4507d4515861e6d9d81caa540cd77d7a9485` |
