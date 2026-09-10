@@ -1,6 +1,6 @@
 # CID EchoTrace Local
 
-CID EchoTrace Local is an offline-first audio and video transcription workspace for evidence review. It gives a graphite, field-olive, brass, and oxide-red desktop interface for batch-dropping recordings, transcribing with its already-included higher-accuracy Whisper model and NVIDIA GPU acceleration, reviewing timestamped output, and exporting TXT, SRT, or a branded PDF transcript.
+CID EchoTrace Local is an offline-first audio and video transcription workspace for evidence review. It gives a desktop interface for batch-dropping recordings, transcribing with its already-included higher-accuracy Whisper model and NVIDIA GPU acceleration, reviewing timestamped output, and exporting TXT, SRT, or a branded PDF transcript.
 
 CID EchoTrace Local is independently branded for CID-style case workflows. It does not reproduce U.S. Army, Department of Defense, or Army CID seals, insignia, or official branding.
 
@@ -22,8 +22,7 @@ The installed Windows application deliberately has no analytics, cloud API calls
 - Transcript corrections have an explicit **Save corrections** action and visible unsaved status. Saving updates the local transcript and individual exports. The catalog retains the pre-correction transcript and segments; imported source media is unchanged. Draft corrections remain in the current browser session when switching recordings, and closing or reloading with unsaved drafts triggers a browser warning.
 - Branded PDF transcript exports generated locally, with the CID EchoTrace Local name and a vector EchoTrace mark embedded directly in the document, using the same field-olive, brass, and parchment palette as the application.
 - Synchronized local review playback: the active transcript segment is highlighted while audio plays, and each timestamp jumps directly to that point in the recording. Transcript search highlights every match, shows the current match count, and provides a Next control (or Enter) to move through each result.
-- Local speaker differentiation: true two-channel recordings retain their separate channels through preparation and use bundled `whisper.cpp` stereo diarization to label the dominant channel as **Speaker A** or **Speaker B**; overlapping/indeterminate audio is marked clearly. Mono recordings expose an **Assign speaker** tag on each segment for reviewer-applied local labels. Renaming or assigning a label refreshes its TXT, SRT, PDF, portfolio, and project-package exports locally.
-- An intentionally original visual system inspired by the *interaction pattern* of a simple Whisper GUI—rather than by WizWhisp branding, logos, images, or source code.
+- Local speaker differentiation: true two-channel recordings retain their separate channels through preparation and use bundled `whisper.cpp` stereo diarization to label the dominant channel as **Speaker A** or **Speaker B**; overlapping/indeterminate audio is marked clearly. Mono recordings expose an **Assign speaker** tag on each segment for reviewer-applied local labels. Renaming or assigning a label refreshes individual TXT, SRT, and PDF exports. Re-export case portfolios and packages to include updated labels.
 
 ## Installed-app requirements
 
@@ -38,12 +37,6 @@ The package includes an official CUDA/cuBLAS build of `whisper.cpp`, a CPU fallb
 For a true stereo/two-channel recording, CID EchoTrace preserves the two source channels while normalizing to 16 kHz PCM and enables the included `whisper.cpp` stereo-diarization mode. This assigns a segment to the channel with clearly higher energy: **Speaker A** for the first/left channel, **Speaker B** for the second/right channel, and **Overlapping / unclear** when neither channel dominates. These are channel labels—not a claim that a voice has been biometrically identified—and they are especially useful for dual-channel interview, call-capture, and recorder exports.
 
 For one-channel/mono recordings, the software does not guess a person's identity. Each timestamped line instead displays **Assign speaker**, which saves a reviewer-entered label in the local case catalog. Click a populated tag to rename that label throughout the transcript. Both paths update the individual TXT, SRT, and PDF exports. Create a new portfolio or case package to include the latest saved labels. No recording, embedding, or speaker label is sent to a service.
-
-### ICMV Audio Codec compatibility
-
-The supplied `ICMVCODEC.MSI` identifies itself as **ICMV Audio Codec 1.0.0** from PCS Inc. Its sole codec payload is an unsigned x86 Windows Audio Compression Manager (`icmv.acm`) module, installed traditionally as `msacm.ICMV` in the global `Drivers32` registry.
-
-CID EchoTrace uses the bundled FFmpeg decoder first for every input. If FFmpeg cannot decode a legacy RIFF/WAV input, CID EchoTrace then uses an x86 `icmv-decode-x86.exe` bridge that loads the supplied ACM module into that one helper process, writes a temporary PCM WAV file, and returns to the local FFmpeg/Whisper pipeline. This preserves FFmpeg's native support for streams such as G.729 while retaining the ICMV bridge as a narrow compatibility fallback. No installer runs at application launch, and CID EchoTrace does not write to `System32`, the global codec registry, or a user's codec configuration.
 
 ### Broad audio decoder coverage
 
