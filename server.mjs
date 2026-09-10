@@ -15,8 +15,8 @@ import { spawn } from "node:child_process";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const runtimeDir = process.env.ECHOSCRIBE_DATA_DIR ? path.resolve(process.env.ECHOSCRIBE_DATA_DIR) : rootDir;
-const bundledEngineDir = process.env.ECHOSCRIBE_ENGINE_DIR ? path.resolve(process.env.ECHOSCRIBE_ENGINE_DIR) : null;
-const bundledModelDir = process.env.ECHOSCRIBE_MODEL_DIR ? path.resolve(process.env.ECHOSCRIBE_MODEL_DIR) : null;
+const bundledEngineDir = process.env.ECHOSCRIBE_ENGINE_DIR ? path.resolve(process.env.ECHOSCRIBE_ENGINE_DIR) : (fs.existsSync(path.join(rootDir, "vendor", "engine", "ffmpeg", "ffmpeg.exe")) ? path.join(rootDir, "vendor", "engine") : null);
+const bundledModelDir = process.env.ECHOSCRIBE_MODEL_DIR ? path.resolve(process.env.ECHOSCRIBE_MODEL_DIR) : (fs.existsSync(path.join(rootDir, "vendor", "models", "ggml-large-v3-turbo.bin")) ? path.join(rootDir, "vendor", "models") : null);
 const publicDir = path.join(rootDir, "public");
 const dataDir = path.join(runtimeDir, "data");
 const incomingDir = path.join(dataDir, "incoming");
@@ -77,6 +77,41 @@ const defaultConfig = {
 };
 
 const jobs = new Map();
+const cases = new Map();
+const catalogPath = path.join(dataDir, "case-catalog.json");
+let catalogWrites = Promise.resolve();
+
+function saveCatalog() {
+  const snapshot = JSON.stringify({ version: 1, cases: [...cases.values()], jobs: [...jobs.values()] });
+  const write = catalogWrites.catch(() => {}).then(async () => {
+    await fsp.writeFile(`${catalogPath}.tmp`, snapshot, "utf8");
+    await fsp.rename(`${catalogPath}.tmp`, catalogPath);
+  });
+  catalogWrites = write;
+  return write;
+}
+
+async function loadCatalog() {
+  let saved;
+  try { saved = JSON.parse(await fsp.readFile(catalogPath, "utf8")); }
+  catch (error) { if (error.code === "ENOENT") return; throw new Error(`Unable to read the case catalog: ${error.message}`); }
+  if (saved.version !== 1 || !Array.isArray(saved.cases) || !Array.isArray(saved.jobs)) throw new Error("Invalid case catalog; original file preserved.");
+  for (const item of saved.cases) cases.set(item.id, item);
+  for (const job of saved.jobs) {
+    if (["uploading", "queued", "processing"].includes(job.state)) {
+      job.state = "failed";
+      job.stage = "Interrupted by app shutdown";
+      job.error = "Processing was interrupted. The local source copy is retained; add the original recording again to retry.";
+    }
+    jobs.set(job.id, job);
+    if (!cases.has(job.projectId)) cases.set(job.projectId, { id: job.projectId, name: job.projectName });
+  }
+}
+
+function caseName(value) {
+  if (typeof value !== "string" || !value.trim() || value.trim().length > 80 || /[\x00-\x1f]/.test(value)) throw new Error("Enter a case name or number of 1–80 characters.");
+  return value.trim();
+}
 const pendingJobIds = [];
 let activeJobId = null;
 let config = defaultConfig;
@@ -142,7 +177,7 @@ function safeProjectName(input) {
 function projectFromHeader(input) {
   const name = safeProjectName(input);
   const key = createHash("sha256").update(name.toLocaleLowerCase()).digest("hex").slice(0, 16);
-  return { id: `project-${key}`, name };
+  return [...cases.values()].find((item) => item.name.toLowerCase() === name.toLowerCase()) || { id: cases.has(`project-${key}`) ? `case-${randomUUID()}` : `project-${key}`, name };
 }
 
 function safeFileStem(input) {
@@ -762,7 +797,7 @@ async function transcribe(job) {
       segments = segmentsFromWhisperJson(JSON.parse(await fsp.readFile(jsonPath, "utf8")));
     }
     const transcript = segments.length ? transcriptFromSegments(segments) : (txtPath ? (await fsp.readFile(txtPath, "utf8")).trim() : "");
-    if (!transcript) throw new Error("Whisper completed but did not create a readable transcript.");
+    if (!transcript) throw new Error("The local engine finished without readable speech text. Check that the recording contains audible speech, then try adding it again. The imported source copy is retained.");
 
     job.transcript = transcript;
     job.segments = segments;
@@ -795,6 +830,7 @@ async function processNextJob() {
   if (!job) return processNextJob();
   activeJobId = job.id;
   await transcribe(job);
+  await saveCatalog().catch((error) => console.error("Case catalog save failed:", error));
   activeJobId = null;
   void processNextJob();
 }
@@ -1094,14 +1130,33 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, await engineHealth());
   }
   if (request.method === "GET" && url.pathname === "/api/jobs") {
-    return sendJson(response, 200, { jobs: [...jobs.values()].map(publicJob).sort((a, b) => b.createdAt.localeCompare(a.createdAt)) });
+    return sendJson(response, 200, { cases: [...cases.values()], jobs: [...jobs.values()].map(publicJob).sort((a, b) => b.createdAt.localeCompare(a.createdAt)) });
+  }
+  if (segments[1] === "cases" && ["POST", "PATCH"].includes(request.method) && segments.length === (request.method === "POST" ? 2 : 3)) {
+    let name;
+    try { name = caseName((await readJsonBody(request)).name); }
+    catch (error) { return sendError(response, 400, error.message); }
+    const existing = [...cases.values()].find((item) => item.name.toLowerCase() === name.toLowerCase() && item.id !== segments[2]);
+    if (existing) return sendError(response, 409, "A case with that name already exists. Choose it from the case list.");
+    const item = request.method === "POST" ? { id: `case-${randomUUID()}`, name } : cases.get(segments[2]);
+    if (!item) return sendError(response, 404, "Case not found.");
+    const affected = [...jobs.values()].filter((job) => job.projectId === item.id);
+    if (affected.some((job) => ["uploading", "queued", "processing"].includes(job.state))) return sendError(response, 409, "Wait for this case's queue to finish before renaming it.");
+    item.name = name;
+    cases.set(item.id, item);
+    for (const job of jobs.values()) if (job.projectId === item.id) job.projectName = name;
+    for (const job of affected) if (job.state === "completed") await refreshTranscriptExports(job);
+    await saveCatalog();
+    return sendJson(response, 200, { case: item });
   }
   if (request.method === "POST" && url.pathname === "/api/jobs") {
     const suppliedName = safeFileName(request.headers["x-file-name"]);
     const extension = path.extname(suppliedName).toLowerCase();
     const modelId = config.defaultModel;
     const language = "auto";
-    const project = projectFromHeader(request.headers["x-project-name"]);
+    const requestedCase = request.headers["x-case-id"];
+    const project = requestedCase ? cases.get(requestedCase) : projectFromHeader(request.headers["x-project-name"]);
+    if (!project) return sendError(response, 404, "The selected case no longer exists.");
     if (!allowedExtensions.has(extension)) return sendError(response, 415, "Choose a supported audio/video container. CID EchoTrace supports common audio evidence formats such as MP3, WAV, M4A, AMR, Opus, WMA, FLAC, OGG, MKV, and MP4.");
     if (!config.models[modelId]) return sendError(response, 500, "The included Whisper model is unavailable. Reinstall CID EchoTrace Local.");
 
@@ -1130,12 +1185,15 @@ async function handleApi(request, response, url) {
       job.state = "queued";
       job.stage = "Waiting for the local engine";
       job.progress = 10;
+      cases.set(project.id, project);
+      await saveCatalog();
       pendingJobIds.push(id);
       void processNextJob();
       return sendJson(response, 202, { job: publicJob(job) });
     } catch (error) {
       jobs.delete(id);
       await removeIfPresent(job.sourcePath);
+      await saveCatalog();
       return sendError(response, 413, String(error.message || error));
     }
   }
@@ -1183,11 +1241,61 @@ async function handleApi(request, response, url) {
     const job = jobs.get(segments[2]);
     if (!job) return sendError(response, 404, "This local transcription session no longer exists.");
     if (request.method === "GET" && segments.length === 3) return sendJson(response, 200, { job: publicJob(job) });
+    if (request.method === "POST" && segments.length === 4 && segments[3] === "retry") {
+      if (job.state !== "failed") return sendError(response, 409, "Only a recording that needs attention can be retried.");
+      try { await fsp.access(job.sourcePath); }
+      catch { return sendError(response, 409, "The local source copy is unavailable. Add the original recording again."); }
+      if (job.state !== "failed") return sendError(response, 409, "This recording is already queued for retry.");
+      job.state = "queued";
+      job.stage = "Waiting to retry with the local engine";
+      job.progress = 10;
+      job.error = null;
+      await saveCatalog();
+      pendingJobIds.push(job.id);
+      void processNextJob();
+      return sendJson(response, 202, { job: publicJob(job) });
+    }
+    if (request.method === "PATCH" && segments.length === 4 && segments[3] === "transcript") {
+      if (job.state !== "completed") return sendError(response, 409, "Wait for transcription to finish before editing.");
+      let edits;
+      try {
+        edits = (await readJsonBody(request, 4 * 1024 * 1024)).edits;
+        const validIds = new Set(job.segments?.length ? job.segments.map((segment) => segment.id) : ["full"]);
+        if (!edits || typeof edits !== "object" || Array.isArray(edits) || !Object.keys(edits).length || Object.entries(edits).some(([id, text]) => !validIds.has(id) || typeof text !== "string")) throw new Error("Invalid transcript corrections.");
+      } catch (error) { return sendError(response, 400, error.message); }
+      const previous = { transcript: job.transcript, segments: JSON.parse(JSON.stringify(job.segments || [])) };
+      job.originalTranscript ??= previous.transcript;
+      job.originalSegments ??= previous.segments;
+      if (job.segments?.length) job.segments = job.segments.map((segment) => ({ ...segment, text: edits[segment.id] ?? segment.text }));
+      else job.transcript = edits.full;
+      try {
+        await refreshTranscriptExports(job);
+        if (!job.segments?.length && job.outputFiles.txtPath) await fsp.writeFile(job.outputFiles.txtPath, job.transcript, "utf8");
+        await saveCatalog();
+      } catch (error) {
+        Object.assign(job, previous);
+        await refreshTranscriptExports(job).catch(() => {});
+        throw error;
+      }
+      return sendJson(response, 200, { job: publicJob(job) });
+    }
+    if (request.method === "PATCH" && segments.length === 4 && segments[3] === "case") {
+      if (["processing", "uploading", "queued"].includes(job.state)) return sendError(response, 409, "Wait for processing to finish before moving this file.");
+      const payload = await readJsonBody(request);
+      const target = cases.get(payload.caseId);
+      if (!target) return sendError(response, 404, "Destination case not found.");
+      job.projectId = target.id;
+      job.projectName = target.name;
+      if (job.state === "completed") await refreshTranscriptExports(job);
+      await saveCatalog();
+      return sendJson(response, 200, { job: publicJob(job) });
+    }
     if (request.method === "PATCH" && segments.length === 5 && segments[3] === "speakers") {
       if (job.state !== "completed") return sendError(response, 409, "Wait for the local transcription to finish before labeling speakers.");
       try {
         const payload = await readJsonBody(request);
         await renameJobSpeaker(job, segments[4], payload?.name);
+        await saveCatalog();
         return sendJson(response, 200, { job: publicJob(job) });
       } catch (error) {
         return sendError(response, 400, String(error.message || error));
@@ -1198,6 +1306,7 @@ async function handleApi(request, response, url) {
       try {
         const payload = await readJsonBody(request);
         await assignSegmentSpeaker(job, segments[4], payload?.name);
+        await saveCatalog();
         return sendJson(response, 200, { job: publicJob(job) });
       } catch (error) {
         return sendError(response, 400, String(error.message || error));
@@ -1206,6 +1315,7 @@ async function handleApi(request, response, url) {
     if (request.method === "DELETE" && segments.length === 3) {
       if (job.state === "processing" || job.state === "uploading") return sendError(response, 409, "Wait for the active job to finish before clearing it.");
       jobs.delete(job.id);
+      await saveCatalog();
       const queuedIndex = pendingJobIds.indexOf(job.id);
       if (queuedIndex >= 0) pendingJobIds.splice(queuedIndex, 1);
       await Promise.all([removeIfPresent(job.sourcePath), removeIfPresent(job.playbackPath), ...Object.values(job.outputFiles || {}).filter(Boolean).map(removeIfPresent), ...(job.internalFiles || []).filter(Boolean).map(removeIfPresent)]);
@@ -1252,6 +1362,7 @@ async function serveStatic(response, pathname) {
 
 export async function startServer({ port } = {}) {
   await Promise.all([loadConfig(), fsp.mkdir(incomingDir, { recursive: true }), fsp.mkdir(workspaceDir, { recursive: true }), fsp.mkdir(exportsDir, { recursive: true }), fsp.mkdir(playbackDir, { recursive: true }), fsp.mkdir(projectsDir, { recursive: true }), fsp.mkdir(projectPortfoliosDir, { recursive: true })]);
+  await loadCatalog();
   const server = http.createServer((request, response) => {
     const url = new URL(request.url, `http://${request.headers.host || "127.0.0.1"}`);
     if (url.pathname.startsWith("/api/")) {

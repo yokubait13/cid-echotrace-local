@@ -18,26 +18,40 @@
         <nav class="nav-list">
           <a class="nav-link active" href="#workspace" data-view="workspace">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18.5zM8 8h8M8 12h8M8 16h5" /></svg>
-            <span>Transcribe</span>
+            <span>Add recordings</span>
           </a>
           <a class="nav-link" href="#library" data-view="library">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h10A2.5 2.5 0 0 1 17.5 7v12.5H7A2.5 2.5 0 0 1 4.5 17V5a.5.5 0 0 1 .5-.5ZM8.5 8h5M8.5 11.5h5M8.5 15h3" /><path d="M17.5 7H19a.5.5 0 0 1 .5.5v11A2.5 2.5 0 0 1 17 21H7" /></svg>
-            <span>Local library</span>
+            <span>All case files</span>
             <span class="nav-count" id="navJobCount">0</span>
           </a>
-          <div class="project-nav" id="projectNav" aria-label="Project folders" hidden></div>
         </nav>
+
+        <section class="case-controls" aria-label="Case organization">
+          <div class="case-heading"><h2>Case files</h2><button type="button" id="newCaseButton">+ New case</button></div>
+          <form id="caseForm" hidden>
+            <label for="caseNameInput">Case name or number</label>
+            <input id="caseNameInput" maxlength="80" required autocomplete="off" placeholder="e.g. 2026-014 · Witness interviews" />
+            <div class="case-actions"><button type="submit">Save case</button><button type="button" id="cancelCaseButton">Cancel</button></div>
+            <p id="caseFormStatus" role="status"></p>
+          </form>
+          <label class="rail-field" for="caseSearch">Find a case or recording<input id="caseSearch" type="search" placeholder="Case number, name, or filename" /></label>
+          <label class="rail-field" for="caseStatus">Show files<select id="caseStatus"><option value="all">All statuses</option><option value="completed">Ready for review</option><option value="active">In progress</option><option value="failed">Needs attention</option></select></label>
+          <div class="project-nav" id="projectNav" aria-label="Case folders"></div>
+          <section id="fileActions" class="file-actions" aria-label="Selected recording actions" hidden></section>
+        </section>
 
         <section class="rail-queue" id="railQueue" aria-labelledby="railQueueHeading">
           <header class="rail-section-heading">
             <span id="railQueueHeading">LOCAL QUEUE</span>
             <b id="railQueueCount">0</b>
           </header>
-          <p class="rail-queue-empty" id="railQueueEmpty">Files you add will appear here.</p>
+          <p class="rail-queue-empty" id="railQueueEmpty">No files are processing or need attention.</p>
           <div class="rail-job-list" id="railJobList" hidden></div>
         </section>
 
         <div class="sidebar-spacer"></div>
+        <button class="settings-link" id="openDataButton" type="button" hidden>Open local data folder</button>
         <section class="privacy-card" aria-label="Privacy promise">
           <span class="lock-orb" aria-hidden="true">
             <svg viewBox="0 0 24 24"><rect x="6.5" y="10" width="11" height="9" rx="2" /><path d="M9 10V7.5a3 3 0 0 1 6 0V10" /></svg>
@@ -56,7 +70,7 @@
       <main class="main-area" id="workspace">
         <header class="topbar">
           <div>
-            <p class="breadcrumb">Workspace <span>/</span> Today</p>
+            <p class="breadcrumb" id="caseBreadcrumb">Case workspace <span>/</span> Local evidence review</p>
             <h1 id="pageTitle">New transcription</h1>
           </div>
           <div class="topbar-actions">
@@ -72,8 +86,8 @@
         <section class="content-scroll" aria-live="polite">
           <div class="hero-copy" id="emptyHero" data-workspace-panel data-selection-hidden>
             <span class="eyebrow"><i></i> Offline transcription workspace</span>
-            <h2>Every spoken idea,<br /><em>ready to work with.</em></h2>
-            <p>Drop a recording and get a searchable transcript with the included local model—nothing is sent to the cloud.</p>
+            <h2>From recording<br /><em>to case review.</em></h2>
+            <p>Create or select a case on the left, add recordings, then review the transcript alongside the audio. All processing stays on this computer.</p>
           </div>
 
           <section class="drop-card" id="dropCard" aria-label="Choose media to transcribe" data-workspace-panel data-selection-hidden>
@@ -87,7 +101,8 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0-11-4 4m4-4 4 4M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" /></svg>
               Choose a file
             </button>
-            <label class="upload-project-field" for="projectName">Project folder <input id="projectName" type="text" maxlength="80" placeholder="Untitled project" autocomplete="off" /></label>
+            <label class="upload-project-field" for="projectName">Add to case <select id="projectName"><option value="">Unfiled recordings</option></select></label>
+            <p id="intakeStatus" role="status"></p>
             <div class="format-row"><span>Batch upload</span><span>1 file processes at a time</span><span>MP3</span><span>AMR / GSM</span><span>Opus / OGG</span><span>WAV / ICMV</span><span>and more</span></div>
           </section>
 
@@ -107,6 +122,7 @@
               </div>
             </div>
             <div class="transcript-summary" id="transcriptSummary"></div>
+            <div class="review-save"><span id="transcriptSaveStatus" role="status">Machine-generated transcript. Verify wording and speaker labels against the audio.</span><button class="secondary-button" id="saveTranscriptButton" type="button" disabled>Save corrections</button></div>
             <section class="audio-review" id="audioReview" hidden aria-label="Synchronized transcript playback">
               <div class="audio-review-heading">
                 <div>
@@ -127,7 +143,7 @@
                 <p class="section-kicker">Local library</p>
                 <h2 id="libraryHeading">Your recordings</h2>
               </div>
-              <span class="queue-note">Available in this local session.</span>
+              <span class="queue-note">Saved on this computer.</span>
             </div>
             <div class="empty-queue" id="emptyLibrary">
               <span class="empty-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
