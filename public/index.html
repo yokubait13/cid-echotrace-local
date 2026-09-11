@@ -50,7 +50,34 @@
           <div class="rail-job-list" id="railJobList" hidden></div>
         </section>
 
-        <div class="sidebar-spacer"></div>
+              <details class="runtime-details"><summary>Processing &amp; engine</summary>
+        <div class="inspector-top">
+          <span class="inspector-dot" aria-hidden="true"></span>
+          <p>PROCESSING STATUS</p>
+        </div>
+        <section class="processing-overview" aria-live="polite">
+          <p class="side-label">ACTIVE FILE</p>
+          <h2 id="activeJobName">No active transcription</h2>
+          <p class="active-job-stage" id="activeJobStage">Add a file to begin a private local transcription.</p>
+          <div class="side-progress-row">
+            <div class="side-progress-track" id="activeProgress" role="progressbar" aria-label="Active transcription progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="activeProgressFill"></i></div>
+            <strong id="activeProgressPercent">0%</strong>
+          </div>
+          <div class="processing-metrics">
+            <div><span>ENGINE</span><strong id="activeEngine">Waiting</strong></div>
+            <div><span>QUEUE</span><strong id="queueStatus">0 files</strong></div>
+          </div>
+        </section>
+        
+        <div class="inspector-spacer"></div>
+        <section class="engine-card" id="engineCard">
+          <div class="engine-title"><span class="engine-pulse"></span><strong>Checking local engine</strong></div>
+          <p id="engineMessage">Checking the included offline transcription runtime.</p>
+          <div class="engine-actions">
+            <button type="button" id="refreshEngine">Refresh status</button>
+          </div>
+        </section>
+      </details><div class="sidebar-spacer"></div>
         <button class="settings-link" id="openDataButton" type="button" hidden>Open local data folder</button>
         <section class="privacy-card" aria-label="Privacy promise">
           <span class="lock-orb" aria-hidden="true">
@@ -63,7 +90,7 @@
         </section>
         <button class="settings-link" type="button" id="settingsButton">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="m19.1 13.1 1.1.8-2 3.5-1.3-.5a7.5 7.5 0 0 1-1.7 1l-.2 1.4h-4l-.2-1.4a7.5 7.5 0 0 1-1.7-1l-1.3.5-2-3.5 1.1-.8a7.6 7.6 0 0 1 0-2.2l-1.1-.8 2-3.5 1.3.5a7.5 7.5 0 0 1 1.7-1L11 4.2h4l.2 1.4a7.5 7.5 0 0 1 1.7 1l1.3-.5 2 3.5-1.1.8a7.6 7.6 0 0 1 0 2.2Z" /></svg>
-          <span>Included runtime</span>
+          <span>Help &amp; runtime</span>
         </button>
       </aside>
 
@@ -86,7 +113,7 @@
         <section class="content-scroll" aria-live="polite">
           <div class="hero-copy" id="emptyHero" data-workspace-panel data-selection-hidden>
             <span class="eyebrow"><i></i> Offline transcription workspace</span>
-            <h2>From recording<br /><em>to case review.</em></h2>
+            <h2>Add recordings to a case</h2>
             <p>Create or select a case on the left, add recordings, then review the transcript alongside the audio. All processing stays on this computer.</p>
           </div>
 
@@ -122,7 +149,7 @@
               </div>
             </div>
             <div class="transcript-summary" id="transcriptSummary"></div>
-            <div class="review-save"><span id="transcriptSaveStatus" role="status">Machine-generated transcript. Verify wording and speaker labels against the audio.</span><button class="secondary-button" id="saveTranscriptButton" type="button" disabled>Save corrections</button></div>
+            <div class="review-save"><span id="transcriptSaveStatus" role="status">Machine-generated transcript. Verify wording against the audio.</span><button type="button" id="rememberTerm" class="secondary-button">Remember selected wording</button><button class="secondary-button" id="saveTranscriptButton" type="button" disabled>Save corrections</button></div>
             <section class="audio-review" id="audioReview" hidden aria-label="Synchronized transcript playback">
               <div class="audio-review-heading">
                 <div>
@@ -154,44 +181,7 @@
         </section>
       </main>
 
-      <aside class="inspector processing-inspector" aria-label="Processing status">
-        <div class="inspector-top">
-          <span class="inspector-dot" aria-hidden="true"></span>
-          <p>PROCESSING STATUS</p>
-        </div>
-        <section class="processing-overview" aria-live="polite">
-          <p class="side-label">ACTIVE FILE</p>
-          <h2 id="activeJobName">No active transcription</h2>
-          <p class="active-job-stage" id="activeJobStage">Add a file to begin a private local transcription.</p>
-          <div class="side-progress-row">
-            <div class="side-progress-track" id="activeProgress" role="progressbar" aria-label="Active transcription progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="activeProgressFill"></i></div>
-            <strong id="activeProgressPercent">0%</strong>
-          </div>
-          <div class="processing-metrics">
-            <div><span>ENGINE</span><strong id="activeEngine">Waiting</strong></div>
-            <div><span>QUEUE</span><strong id="queueStatus">0 files</strong></div>
-          </div>
-        </section>
-        <section class="included-card">
-          <p>Every finished transcript includes</p>
-          <ul>
-            <li><span>✓</span> Editable text transcript</li>
-            <li><span>✓</span> Timestamped segments</li>
-            <li><span>✓</span> Local speaker labels</li>
-            <li><span>✓</span> TXT, SRT and branded PDF exports</li>
-            <li><span>✓</span> NVIDIA GPU acceleration</li>
-            <li><span>✓</span> Private ICMV WAV decoding</li>
-          </ul>
-        </section>
-        <div class="inspector-spacer"></div>
-        <section class="engine-card" id="engineCard">
-          <div class="engine-title"><span class="engine-pulse"></span><strong>Checking local engine</strong></div>
-          <p id="engineMessage">Checking the included offline transcription runtime.</p>
-          <div class="engine-actions">
-            <button type="button" id="refreshEngine">Refresh status</button>
-          </div>
-        </section>
-      </aside>
+
     </div>
 
     <div class="modal-backdrop" id="modalBackdrop" hidden>
@@ -202,12 +192,18 @@
         <ol>
           <li><b>Your accuracy-focused local model is already included.</b> Whisper Large v3 Turbo multilingual is installed with CID EchoTrace—there is nothing to configure or download.</li>
           <li><b>Drop a recording.</b> The app streams it only to its local service at <code>127.0.0.1</code>.</li>
-          <li><b>Review, label, and export.</b> Stereo recordings receive local Speaker A/B channel labels; click a tag to rename it, or assign tags to mono segments before downloading TXT, SRT, and a branded PDF transcript.</li>
+          <li><b>Review, correct, and export.</b> Click a timestamp to check the audio. Save corrections to update exports. Case vocabulary remembers verified names and phrases for future recordings in that case.</li>
         </ol>
         <p class="modal-note">Whisper, the ICMV decoder bridge, FFmpeg's broad local decoder suite, local speech detection, and the transcription model are packaged inside CID EchoTrace. The installed edition also includes its CUDA runtime; an NVIDIA display driver is all GPU acceleration requires.</p>
       </section>
     </div>
-    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <dialog id="vocabularyDialog" aria-labelledby="vocabularyTitle">
+<form id="vocabularyForm"><h2 id="vocabularyTitle">Case vocabulary</h2><p id="vocabularyCaseName"></p>
+<p>Remember verified names, places, and specialist terms for future recordings in this case. These hints guide recognition; they do not retrain the model or replace words in existing evidence.</p>
+<label for="vocabularyTerms">One name or phrase per line</label><textarea id="vocabularyTerms" rows="10" maxlength="2100"></textarea>
+<p>Only this case uses these terms. Remove a line to forget it. Always verify new transcripts against the recording.</p>
+<p id="vocabularyStatus" role="status"></p><div class="case-actions"><button type="submit" class="primary-button">Save vocabulary</button><button type="button" id="closeVocabulary">Cancel</button></div>
+</form></dialog><div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

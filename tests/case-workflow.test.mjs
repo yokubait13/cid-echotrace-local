@@ -39,6 +39,11 @@ test("case management, saved corrections, exports, source preservation, and rest
     const created = await api("/api/cases", "POST", { name: "2026-015 · Counsel review" });
     assert.equal(created.status, 200);
     const caseId = created.body.case.id;
+    assert.equal((await api(`/api/cases/${caseId}/vocabulary`, "PUT", { terms: ["Yokubaitis", "Forensic interview"] })).status, 200);
+    assert.equal((await api(`/api/cases/${caseId}/vocabulary`, "PUT", { terms: [42] })).status, 400);
+    assert.equal((await api(`/api/cases/${caseId}/vocabulary`, "PUT", { terms: ["invalid\nterm"] })).status, 400);
+    assert.equal((await api(`/api/cases/${caseId}/vocabulary`, "PUT", { terms: Array(101).fill("name") })).status, 400);
+    assert.equal((await api(`/api/cases/missing/vocabulary`, "PUT", { terms: [] })).status, 404);
     assert.equal((await api("/api/cases", "POST", { name: "2026-015 · counsel review" })).status, 409);
     assert.equal((await api("/api/jobs/test-recording-01/case", "PATCH", { caseId: "missing" })).status, 404);
     assert.equal((await api("/api/jobs/test-recording-01/retry", "POST")).status, 409);
@@ -68,6 +73,9 @@ test("case management, saved corrections, exports, source preservation, and rest
     assert.equal(restored.projectId, caseId);
     assert.match(restored.transcript, /Corrected synthetic/);
     assert.equal(list.body.cases.length, 2);
+    assert.deepEqual(list.body.cases.find((item) => item.id === caseId).vocabulary, ["Yokubaitis", "Forensic interview"]);
+    assert.equal(list.body.cases.find((item) => item.id === "case-fixture").vocabulary, undefined);
+    assert.equal((await api(`/api/cases/${caseId}/vocabulary`, "PUT", { terms: [] })).status, 200);
     assert.equal(await hash(), originalHash);
     const retry = await api("/api/jobs/test-interrupted/retry", "POST");
     assert.equal(retry.status, 202);

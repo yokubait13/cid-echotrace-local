@@ -241,3 +241,27 @@ html { min-width: 760px; min-height: 0; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #d7b954; outline-offset: 3px; }
 @media (max-width: 1250px) { .app-shell { grid-template-columns: 300px minmax(0, 1fr); }.inspector { display: none; }.topbar { min-height: 105px; height: auto; }.local-status { display: none; } }
 @media (max-width: 850px) { .app-shell { grid-template-columns: 270px minmax(0, 1fr); }.topbar { padding: 12px 18px; }.content-scroll { padding: 24px 18px; }.hero-copy h2 { font-size: 30px; }.transcript-line { grid-template-columns: 70px minmax(0, 1fr); }.segment-text { grid-column: 1 / -1; } }
+
+/* Focus the workspace on case organization and evidence review. */
+.app-shell { grid-template-columns: 310px minmax(0, 1fr); }
+.content-scroll { max-width: 1200px; width: 100%; }
+.transcript-line { grid-template-columns: 82px minmax(0, 1fr); gap: 16px; }
+.segment-text { grid-column: auto; }
+.hero-copy h2 { font-size: 27px; letter-spacing: -.5px; }
+.hero-copy .eyebrow, .privacy-card { display: none; }
+.drop-card { margin-top: 24px; }
+.project-nav { max-height: 42vh; overflow-y: auto; overscroll-behavior: contain; }
+.file-actions { margin-top: 12px; }
+.runtime-details { margin: 18px 0; padding: 12px; border: 1px solid #ffffff25; border-radius: 8px; }
+.runtime-details summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.runtime-details .inspector-top, .runtime-details .inspector-spacer { display: none; }
+.runtime-details .processing-overview { color: #e4eade; margin-top: 16px; }
+.runtime-details .active-job-stage, .runtime-details .side-label { color: #bac7b1; }
+.runtime-details .engine-card { padding: 12px; margin-top: 16px; }
+.review-save { flex-wrap: wrap; gap: 10px; }
+.review-save > span { flex: 1 1 100%; }
+dialog { max-width: 580px; width: calc(100% - 40px); border: 1px solid #d7ded0; border-radius: 12px; padding: 26px; color: #283326; }
+dialog::backdrop { background: #14201080; }
+dialog p { line-height: 1.6; font-size: 14px; }
+dialog textarea { display: block; width: 100%; margin: 10px 0; padding: 12px; font: inherit; border: 1px solid #aab8a0; border-radius: 6px; }
+@media (max-width: 850px) { .app-shell { grid-template-columns: 270px minmax(0, 1fr); } .transcript-line { grid-template-columns: 70px minmax(0, 1fr); } }

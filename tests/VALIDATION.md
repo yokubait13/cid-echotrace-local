@@ -42,3 +42,13 @@ The NSIS installer and portable x64 executable were built with Electron 28.3.3 a
 The packaged `app.asar` reports version 0.10.0. The server, renderer JS/CSS/HTML, Electron host/preload, and LICENSE match the source files byte for byte. The packaged application started successfully with an isolated temporary profile, reported the bundled engine/model/GPU/VAD/ICMV components ready, and saved a case created through the browser interface. The actual portable executable then extracted, started with that same temporary profile, restored the saved case, and reported its local runtime ready. No user case data was used.
 
 SHA-256 checksums are supplied with the release as `SHA256SUMS.txt`. The installer was built and hashed; an installation/uninstallation cycle was not performed.
+
+## v0.10.1 desktop repair
+
+- Syntax and case workflow suite passed.
+- Real Electron lifecycle suite passed five scenarios: clean close, dirty draft close, restored draft with menu Exit, failed backup with cancellation, and active intake close.
+- Verified case vocabulary saves through its UI and survives restart, remains scoped to its case, rejects invalid terms, and can be cleared.
+- Screenshot inspected at the normal desktop size; speaker controls are absent and the review occupies the main area.
+- No real-speech accuracy benchmark or installer lifecycle certification is claimed.
+- The same five Electron scenarios passed against the exact packaged app.asar, in addition to the source application.
+- Actual v0.10.1 portable executable launched with an isolated synthetic profile. Its UI reported the bundled model and NVIDIA runtime ready. A normal native window-close request exited within ten seconds without force termination.

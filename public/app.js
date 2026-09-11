@@ -306,7 +306,7 @@ function renderProjectNav() {
         <button class="project-folder-open" type="button" data-project-nav-id="${escapeHtml(project.id)}" title="Open ${escapeHtml(project.name)} in the library">View</button>
       </div>
       <div ${expanded ? "" : "hidden"}>
-      <div class="case-actions" data-case-id="${escapeHtml(project.id)}"><button type="button" data-case-action="add">Add files</button><button type="button" data-case-action="rename">Rename</button><button type="button" data-case-action="portfolio" title="Export every completed transcript in this case" ${project.allJobs.some((job) => job.state === "completed") ? "" : "disabled"}>PDF portfolio</button><button type="button" data-case-action="package" title="Package all recordings and available exports in this case" ${project.allJobs.length ? "" : "disabled"}>Package case</button></div>
+      <div class="case-actions" data-case-id="${escapeHtml(project.id)}"><button type="button" data-case-action="add">Add files</button><button type="button" data-case-action="rename">Rename</button><button type="button" data-case-action="vocabulary">Vocabulary</button><button type="button" data-case-action="portfolio" title="Export every completed transcript in this case" ${project.allJobs.some((job) => job.state === "completed") ? "" : "disabled"}>PDF portfolio</button><button type="button" data-case-action="package" title="Package all recordings and available exports in this case" ${project.allJobs.length ? "" : "disabled"}>Package case</button></div>
       <div class="project-file-list">${project.jobs.map((job) => `<button class="project-file-item ${job.id === state.selectedJobId ? "selected" : ""}" type="button" data-project-nav-job-id="${job.id}" title="${escapeHtml(job.name)}"><span>${escapeHtml(job.name)}</span><em>${escapeHtml(stateLabel(job))}</em></button>`).join("") || '<p class="rail-empty">No files yet. Add recordings to this case.</p>'}</div></div>
     </section>`;
   }).join("")}`;
@@ -375,29 +375,6 @@ function durationLabel(job) {
 function wordCount(job) {
   const text = job.segments?.length ? job.segments.map((segment) => segment.text || "").join(" ") : job.transcript;
   return text.trim() ? text.trim().split(/\s+/).length : 0;
-}
-
-function speakerSummary(job) {
-  const labeled = (job.segments || []).filter((segment) => segment.speaker).length;
-  if (job.diarization?.mode === "stereo-channel") {
-    const count = Number(job.diarization.speakerCount) || 0;
-    return `<span class="summary-chip speaker-summary"><strong>${count || 2} speaker${count === 1 ? "" : "s"}</strong> · separated stereo channels</span>`;
-  }
-  if (labeled) {
-    const count = new Set(job.segments.map((segment) => segment.speakerKey).filter(Boolean)).size;
-    return `<span class="summary-chip speaker-summary"><strong>${count} local speaker label${count === 1 ? "" : "s"}</strong></span>`;
-  }
-  return `<span class="summary-chip speaker-summary">Mono source · <strong>assign speaker tags</strong></span>`;
-}
-
-function speakerTag(segment) {
-  const id = escapeHtml(segment.id);
-  if (!segment.speaker) {
-    return `<button class="speaker-tag unassigned" type="button" data-assign-speaker-segment="${id}" title="Assign a local speaker label to this segment">Assign speaker</button>`;
-  }
-  const speakerKey = escapeHtml(segment.speakerKey || "manual");
-  const channelClass = segment.speakerKey === "channel-0" ? "channel-a" : segment.speakerKey === "channel-1" ? "channel-b" : segment.speakerKey === "channel-mixed" ? "overlap" : "manual";
-  return `<button class="speaker-tag ${channelClass}" type="button" data-rename-speaker-key="${speakerKey}" title="Rename this speaker throughout the local transcript">${escapeHtml(segment.speaker)}</button>`;
 }
 
 function highlight(text, query) {
@@ -549,11 +526,11 @@ function renderTranscript() {
   if (state.view !== "workspace") return;
   const draft = state.transcriptDrafts.get(job.id);
   document.querySelector("#saveTranscriptButton").disabled = !draft;
-  document.querySelector("#transcriptSaveStatus").textContent = draft ? "Unsaved corrections — saved when you select Save corrections. Exports still contain the last saved text." : "Machine-generated transcript. Verify wording and speaker labels against the audio.";
+  document.querySelector("#transcriptSaveStatus").textContent = draft ? "Draft corrections — select Save corrections to update exports. Desktop drafts are backed up locally." : "Machine-generated transcript. Verify wording against the audio.";
   document.querySelector("#caseBreadcrumb").textContent = `Case workspace / ${job.projectName || "Unfiled recordings"}`;
   elements.pageTitle.textContent = titleFromFile(job.name);
   elements.transcriptTitle.textContent = titleFromFile(job.name);
-  elements.transcriptSummary.innerHTML = `<span class="summary-chip"><strong>${wordCount(job)}</strong> words</span><span class="summary-chip">${durationLabel(job)}</span>${speakerSummary(job)}<span class="summary-chip">${escapeHtml(job.modelLabel)}</span>${["txt", "srt", "pdf"].map((format) => `<a class="export-button" href="/api/jobs/${job.id}/export?format=${format}" download>Export ${format.toUpperCase()}</a>`).join("")}`;
+  elements.transcriptSummary.innerHTML = `<span class="summary-chip"><strong>${wordCount(job)}</strong> words</span><span class="summary-chip">${durationLabel(job)}</span><span class="summary-chip">${escapeHtml(job.modelLabel)}</span>${["txt", "srt", "pdf"].map((format) => `<a class="export-button" href="/api/jobs/${job.id}/export?format=${format}" download>Export ${format.toUpperCase()}</a>`).join("")}`;
   elements.audioReview.hidden = !job.mediaAvailable;
   if (job.mediaAvailable) configurePlaybackPlayer(job);
   else resetPlaybackPlayer();
@@ -566,7 +543,7 @@ function renderTranscript() {
     const timestamp = hasTimestamp
       ? `<button class="timestamp" type="button" data-seek-ms="${segment.startMs}" aria-label="Play from ${escapeHtml(segment.start)}">${escapeHtml(segment.start)}</button>`
       : `<time class="timestamp">${escapeHtml(segment.start || "Transcript")}</time>`;
-    return `<article class="transcript-line" data-segment-row="${escapeHtml(segment.id)}">${timestamp}${speakerTag(segment)}<div class="segment-text" contenteditable="plaintext-only" role="textbox" aria-label="Transcript segment ${escapeHtml(segment.start || "text")}" spellcheck="true" data-segment="${escapeHtml(segment.id)}">${highlight(draft?.[segment.id] ?? segment.text, query)}</div></article>`;
+    return `<article class="transcript-line" data-segment-row="${escapeHtml(segment.id)}">${timestamp}<div class="segment-text" contenteditable="plaintext-only" role="textbox" aria-label="Transcript segment ${escapeHtml(segment.start || "text")}" spellcheck="true" data-segment="${escapeHtml(segment.id)}">${highlight(draft?.[segment.id] ?? segment.text, query)}</div></article>`;
   }).join("");
   updateSearchMatches();
   state.activeSegmentId = null;
@@ -689,6 +666,7 @@ async function clearJob(id) {
     if (state.selectedJobId === id) state.selectedJobId = null;
     await loadJobs();
     state.transcriptDrafts.delete(id);
+    await persistDrafts();
     showToast("The imported local media copy, transcript, exports, and review audio were removed.");
   } catch (error) {
     showToast(error.message, "error");
@@ -702,43 +680,6 @@ function applyUpdatedJob(updated) {
   renderLibrary();
   renderTranscript();
   renderGlobalSearch();
-}
-
-async function renameSpeaker(speakerKey) {
-  const job = selectedCompletedJob();
-  const segment = job?.segments?.find((candidate) => candidate.speakerKey === speakerKey);
-  if (!job || !segment) return;
-  const nextName = window.prompt(`Rename ${segment.speaker} everywhere in this local transcript:`, segment.speaker);
-  if (nextName === null) return;
-  try {
-    const result = await request(`/api/jobs/${encodeURIComponent(job.id)}/speakers/${encodeURIComponent(speakerKey)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: nextName })
-    });
-    applyUpdatedJob(result.job);
-    showToast("Speaker label updated in the transcript and local exports.");
-  } catch (error) {
-    showToast(error.message || "That speaker label could not be updated.", "error");
-  }
-}
-
-async function assignSpeakerToSegment(segmentId) {
-  const job = selectedCompletedJob();
-  if (!job) return;
-  const nextName = window.prompt("Label this transcript segment (for example: Investigator, Caller, Speaker 1):", "Speaker 1");
-  if (nextName === null) return;
-  try {
-    const result = await request(`/api/jobs/${encodeURIComponent(job.id)}/segments/${encodeURIComponent(segmentId)}/speaker`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: nextName })
-    });
-    applyUpdatedJob(result.job);
-    showToast("Speaker label added to this segment and local exports.");
-  } catch (error) {
-    showToast(error.message || "That speaker label could not be added.", "error");
-  }
 }
 
 async function packageProject(projectId) {
@@ -807,13 +748,7 @@ elements.transcriptBody.addEventListener("click", (event) => {
     void playFrom(Number(timestamp.dataset.seekMs));
     return;
   }
-  const rename = event.target.closest("button[data-rename-speaker-key]");
-  if (rename) {
-    void renameSpeaker(rename.dataset.renameSpeakerKey);
-    return;
-  }
-  const assign = event.target.closest("button[data-assign-speaker-segment]");
-  if (assign) void assignSpeakerToSegment(assign.dataset.assignSpeakerSegment);
+
 });
 elements.transcriptBody.addEventListener("input", (event) => {
   const target = event.target.closest("[data-segment]");
@@ -821,8 +756,9 @@ elements.transcriptBody.addEventListener("input", (event) => {
   const draft = state.transcriptDrafts.get(state.selectedJobId) || {};
   draft[target.dataset.segment] = target.innerText;
   state.transcriptDrafts.set(state.selectedJobId, draft);
+  void persistDrafts().catch((error) => showToast(`Draft backup failed: ${error.message}`, "error"));
   document.querySelector("#saveTranscriptButton").disabled = false;
-  document.querySelector("#transcriptSaveStatus").textContent = "Unsaved corrections — select Save corrections to update the transcript and exports.";
+  document.querySelector("#transcriptSaveStatus").textContent = "Draft corrections — select Save corrections to update the transcript and exports.";
 });
 document.querySelector("#saveTranscriptButton").addEventListener("click", async (event) => {
   const id = state.selectedJobId;
@@ -833,12 +769,26 @@ document.querySelector("#saveTranscriptButton").addEventListener("click", async 
   try {
     const result = await request(`/api/jobs/${id}/transcript`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ edits }) });
     state.transcriptDrafts.delete(id);
+    await persistDrafts();
     applyUpdatedJob(result.job);
     showToast("Corrections saved. Individual transcript exports updated; re-export any existing case package or portfolio.");
   } catch (error) { event.target.disabled = false; showToast(error.message, "error"); }
   finally { renderTranscript(); }
 });
-window.addEventListener("beforeunload", (event) => { if (state.transcriptDrafts.size) { event.preventDefault(); event.returnValue = ""; } });
+async function persistDrafts() {
+  if (isDesktopApp()) await window.echoTraceDesktop.saveDrafts(Object.fromEntries(state.transcriptDrafts));
+}
+window.echoTracePrepareClose = async () => {
+  await persistDrafts();
+};
+window.addEventListener("beforeunload", (event) => {
+  if (!isDesktopApp() && state.transcriptDrafts.size) { event.preventDefault(); event.returnValue = ""; }
+});
+document.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+    event.preventDefault(); document.querySelector("#saveTranscriptButton").click();
+  }
+});
 elements.globalSearch.addEventListener("input", renderGlobalSearch);
 elements.globalSearch.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
@@ -875,8 +825,10 @@ elements.copyButton.addEventListener("click", async () => {
   const job = selectedCompletedJob();
   if (!job) return;
   try {
-    await navigator.clipboard.writeText(job.transcript);
-    showToast("Transcript copied to your clipboard.");
+    const draft = state.transcriptDrafts.get(job.id);
+    const text = draft ? (job.segments?.length ? job.segments.map((segment) => draft[segment.id] ?? segment.text).join("\n") : draft.full ?? job.transcript) : job.transcript;
+    await navigator.clipboard.writeText(text);
+    showToast(draft ? "Current review text copied. Save corrections to update exports." : "Transcript copied to your clipboard.");
   } catch {
     showToast("Your browser did not allow copying. Select the text and copy it manually.", "error");
   }
@@ -1002,4 +954,55 @@ window.addEventListener("keydown", (event) => { if (event.key === "Escape") clos
 if (isDesktopApp()) window.echoTraceDesktop.onShowHelp(showModal);
 
 setView(window.location.hash === "#library" ? "library" : "workspace", false);
+
+
+let vocabularyCaseId;
+function openVocabulary(caseId) {
+  const item = state.cases.find((entry) => entry.id === caseId);
+  if (!item) return;
+  vocabularyCaseId = caseId;
+  document.querySelector('#vocabularyCaseName').textContent = item.name;
+  document.querySelector('#vocabularyTerms').value = (item.vocabulary || []).join('\n');
+  document.querySelector('#vocabularyStatus').textContent = '';
+  document.querySelector('#vocabularyDialog').showModal();
+}
+elements.projectNav.addEventListener('click', (event) => {
+  if (event.target.closest('[data-case-action="vocabulary"]')) openVocabulary(event.target.closest('[data-case-id]').dataset.caseId);
+});
+document.querySelector('#closeVocabulary').addEventListener('click', () => document.querySelector('#vocabularyDialog').close());
+document.querySelector('#vocabularyForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const button = event.submitter;
+  button.disabled = true;
+  try {
+    const result = await request('/api/cases/' + encodeURIComponent(vocabularyCaseId) + '/vocabulary', {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({terms: document.querySelector('#vocabularyTerms').value.split(/\r?\n/)})
+    });
+    const index = state.cases.findIndex((item) => item.id === result.case.id);
+    state.cases[index] = result.case;
+    document.querySelector('#vocabularyDialog').close();
+    showToast('Case vocabulary saved. It will guide future transcriptions in this case.');
+  } catch (error) { document.querySelector('#vocabularyStatus').textContent = error.message; }
+  finally { button.disabled = false; }
+});
+document.querySelector('#rememberTerm').addEventListener('mousedown', (event) => event.preventDefault());
+document.querySelector('#rememberTerm').addEventListener('click', () => {
+  const selection = window.getSelection();
+  const term = selection.toString().trim();
+  const job = selectedCompletedJob();
+  if (!term || term.length > 100 || !elements.transcriptBody.contains(selection.anchorNode) || !elements.transcriptBody.contains(selection.focusNode)) {
+    showToast('Select a verified name or short phrase in the transcript first (up to 100 characters).', 'error'); return;
+  }
+  openVocabulary(job.projectId);
+  const field = document.querySelector('#vocabularyTerms');
+  const terms = field.value.split('\n').filter(Boolean);
+  if (!terms.includes(term)) terms.push(term);
+  field.value = terms.join('\n');
+});
+
+if (isDesktopApp()) {
+  try { state.transcriptDrafts = new Map(Object.entries(await window.echoTraceDesktop.loadDrafts())); }
+  catch (error) { showToast("Could not restore review drafts: " + error.message, "error"); }
+}
 await Promise.all([loadHealth(), loadJobs()]);

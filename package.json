@@ -1,6 +1,6 @@
 {
   "name": "cid-echotrace-local",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -13,7 +13,8 @@
     "prepare:offline-runtime": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\\prepare-bundled-runtime.ps1",
     "prepackage:win": "npm run prepare:offline-runtime",
     "package:win": "electron-builder --win nsis portable --x64",
-    "package:dir": "electron-builder --win dir --x64"
+    "package:dir": "electron-builder --win dir --x64",
+    "test:desktop": "node --test tests/desktop-lifecycle.test.mjs"
   },
   "build": {
     "appId": "com.cid.echotrace.local",
@@ -32,15 +33,39 @@
       "package.json"
     ],
     "extraResources": [
-      { "from": "vendor/engine", "to": "engine", "filter": ["**/*"] },
-      { "from": "vendor/models", "to": "models", "filter": ["**/*"] },
-      { "from": "vendor/licenses", "to": "licenses", "filter": ["**/*"] },
-      { "from": "vendor/runtime-manifest.json", "to": "runtime-manifest.json" }
+      {
+        "from": "vendor/engine",
+        "to": "engine",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "vendor/models",
+        "to": "models",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "vendor/licenses",
+        "to": "licenses",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "vendor/runtime-manifest.json",
+        "to": "runtime-manifest.json"
+      }
     ],
     "win": {
       "forceCodeSigning": true,
       "signAndEditExecutable": true,
-      "target": ["nsis", "portable"]
+      "target": [
+        "nsis",
+        "portable"
+      ]
     },
     "nsis": {
       "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",

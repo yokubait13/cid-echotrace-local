@@ -3,7 +3,7 @@
  * The renderer is isolated from Node. It communicates with the private local
  * server over 127.0.0.1 and can request only these narrow desktop actions.
  */
-const { app, BrowserWindow, Menu, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, shell, dialog } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
@@ -11,6 +11,38 @@ const { pathToFileURL } = require("node:url");
 let mainWindow;
 let backend;
 let isQuitting = false;
+let closePending = false;
+let draftWrites = Promise.resolve();
+
+async function closeApplication() {
+  if (closePending || isQuitting) return;
+  closePending = true;
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      let timer;
+      try {
+        await Promise.race([
+          mainWindow.webContents.executeJavaScript("window.echoTracePrepareClose ? window.echoTracePrepareClose() : Promise.resolve()"),
+          new Promise((_resolve, reject) => { timer = setTimeout(() => reject(new Error("The review window is not responding.")), 5000); })
+        ]);
+      } catch (error) {
+        const choice = await dialog.showMessageBox(mainWindow, {
+          type: "warning", title: "Close EchoTrace?", message: "The latest review draft could not be backed up.",
+          detail: `${error.message}\n\nKeep the workspace open to recover your edits, or exit using the last successful local backup.`,
+          buttons: ["Keep open", "Exit using last backup"], defaultId: 0, cancelId: 0
+        });
+        if (choice.response === 0) return;
+      } finally { clearTimeout(timer); }
+    }
+    await draftWrites.catch(() => {});
+    await backend?.shutdown();
+    isQuitting = true;
+    mainWindow?.destroy();
+    app.quit();
+  } catch (error) {
+    dialog.showErrorBox("Unable to close safely", `Your workspace is still open. Save your corrections and try again.\n\n${error.message}`);
+  } finally { closePending = false; }
+}
 
 function appRoot() {
   return path.resolve(__dirname, "..");
@@ -29,7 +61,7 @@ function createMenu() {
       submenu: [
         { label: "Open data folder", click: () => void shell.openPath(app.getPath("userData")) },
         { type: "separator" },
-        { role: "quit" }
+        { label: "Exit", accelerator: "Alt+F4", click: () => void closeApplication() }
       ]
     },
     { role: "editMenu" },
@@ -64,6 +96,9 @@ function createWindow(port) {
     }
   });
   mainWindow.setMenuBarVisibility(true);
+  mainWindow.on("close", (event) => {
+    if (!isQuitting) { event.preventDefault(); void closeApplication(); }
+  });
   mainWindow.once("ready-to-show", () => mainWindow.show());
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("will-navigate", (event, url) => {
@@ -73,6 +108,21 @@ function createWindow(port) {
 }
 
 ipcMain.handle("desktop:open-data-directory", async () => shell.openPath(app.getPath("userData")));
+ipcMain.handle("desktop:load-drafts", async () => {
+  try { return JSON.parse(await fs.readFile(path.join(app.getPath("userData"), "review-drafts.json"), "utf8")); }
+  catch (error) { if (error.code === "ENOENT") return {}; throw error; }
+});
+ipcMain.handle("desktop:save-drafts", async (_event, drafts) => {
+  if (!drafts || typeof drafts !== "object" || Array.isArray(drafts)) throw new Error("Invalid review drafts");
+  const contents = JSON.stringify(drafts);
+  if (Buffer.byteLength(contents) > 16 * 1024 * 1024) throw new Error("Review drafts exceed the local storage limit");
+  const file = path.join(app.getPath("userData"), "review-drafts.json");
+  draftWrites = draftWrites.catch(() => {}).then(async () => {
+    await fs.writeFile(file + ".tmp", contents, "utf8");
+    await fs.rename(file + ".tmp", file);
+  });
+  await draftWrites;
+});
 
 app.whenReady().then(async () => {
   const runtimeDir = await prepareRuntimeDirectory();
@@ -94,9 +144,8 @@ app.whenReady().then(async () => {
   app.quit();
 });
 
-app.on("before-quit", () => {
-  isQuitting = true;
-  if (backend?.server) backend.server.close();
+app.on("before-quit", (event) => {
+  if (!isQuitting && backend) { event.preventDefault(); void closeApplication(); }
 });
 
 app.on("window-all-closed", () => {

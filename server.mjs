@@ -453,6 +453,7 @@ function publicJob(job) {
     completedAt: job.completedAt || null,
     modelId: job.modelId,
     modelLabel: job.modelLabel,
+    vocabularyUsed: job.vocabularyUsed || [],
     language: job.language,
     projectId: job.projectId,
     projectName: job.projectName,
@@ -508,9 +509,13 @@ async function ensureUploadStorage(destination, statedLength) {
   }
 }
 
+const runningCommands = new Set();
+let stopping = false;
 function run(command, args, onLine = () => {}) {
+  if (stopping) return Promise.reject(new Error("Processing stopped because the application is closing. Retry this recording after reopening."));
   return new Promise((resolve, reject) => {
     const process = spawn(command, args, { shell: false, windowsHide: true });
+    runningCommands.add(process);
     let output = "";
     const append = (chunk) => {
       const text = String(chunk);
@@ -524,6 +529,7 @@ function run(command, args, onLine = () => {}) {
     process.stderr.on("data", append);
     process.once("error", (error) => reject(error));
     process.once("close", (code) => {
+      runningCommands.delete(process);
       if (code === 0) resolve(output);
       else {
         const error = new Error(`Command exited with ${code}. ${output.trim()}`);
@@ -761,6 +767,8 @@ async function transcribe(job) {
     const modelPath = resolvePath(config.models[job.modelId].path);
     // Keep transcript rows short enough for practical timestamp-based review.
     const args = ["-m", modelPath, "-f", wavPath, "-of", outputBase, "-oj", "-otxt", "-osrt", "--max-len", "96", "--print-progress"];
+    job.vocabularyUsed = [...(cases.get(job.projectId)?.vocabulary || [])];
+    if (job.vocabularyUsed.length) args.push("--prompt", job.vocabularyUsed.join(", "));
     if (diarizationChannels === 2) args.push("--diarize");
     // whisper.cpp otherwise defaults to English. Always pass `auto` so a
     // multilingual model performs language detection for every upload.
@@ -823,7 +831,7 @@ async function transcribe(job) {
 }
 
 async function processNextJob() {
-  if (activeJobId) return;
+  if (activeJobId || stopping) return;
   const nextId = pendingJobIds.shift();
   if (!nextId) return;
   const job = jobs.get(nextId);
@@ -1125,7 +1133,20 @@ async function engineHealth() {
 }
 
 async function handleApi(request, response, url) {
+  if (stopping) return sendError(response, 503, "The application is closing. Reopen it to continue.");
   const segments = url.pathname.split("/").filter(Boolean);
+  if (request.method === "PUT" && segments.length === 4 && segments[1] === "cases" && segments[3] === "vocabulary") {
+    const item = cases.get(segments[2]);
+    if (!item) return sendError(response, 404, "Case not found.");
+    const body = await readJsonBody(request);
+    if (!Array.isArray(body.terms) || body.terms.length > 100 || body.terms.some((term) => typeof term !== "string" || term.length > 100 || /[\x00-\x1f]/.test(term))) return sendError(response, 400, "Use up to 100 names or terms, each on one line and no longer than 100 characters.");
+    const terms = [...new Set(body.terms.map((term) => term.trim()).filter(Boolean))];
+    if (terms.join(", ").length > 2000) return sendError(response, 400, "Keep case vocabulary within 2,000 characters.");
+    const previous = item.vocabulary;
+    item.vocabulary = terms;
+    try { await saveCatalog(); } catch (error) { item.vocabulary = previous; throw error; }
+    return sendJson(response, 200, { case: item });
+  }
   if (request.method === "GET" && url.pathname === "/api/health") {
     return sendJson(response, 200, await engineHealth());
   }
@@ -1382,7 +1403,22 @@ export async function startServer({ port } = {}) {
       const activePort = typeof address === "object" && address ? address.port : (port ?? config.port);
       console.log(`CID EchoTrace Local is ready at http://127.0.0.1:${activePort}`);
       console.log("All processing routes are bound to localhost only.");
-      resolve({ server, port: activePort, runtimeDir });
+      resolve({ server, port: activePort, runtimeDir, shutdown: async () => {
+        stopping = true;
+        for (const child of runningCommands) child.kill();
+        const deadline = Date.now() + 5000;
+        while (activeJobId && Date.now() < deadline) await new Promise((done) => setTimeout(done, 50));
+        for (const job of jobs.values()) {
+          if (["uploading", "queued", "processing"].includes(job.state)) {
+            job.state = "failed";
+            job.stage = "Interrupted";
+            job.error = "Processing was interrupted when the application closed. Retry using the retained source copy.";
+          }
+        }
+        await saveCatalog();
+        server.closeAllConnections();
+        await new Promise((done, fail) => server.close((error) => error ? fail(error) : done()));
+      } });
     });
   });
 }
